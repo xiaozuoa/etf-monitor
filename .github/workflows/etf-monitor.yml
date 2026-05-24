@@ -1,6 +1,10 @@
 name: ETF国家队共振监控 v3
 
 on:
+  push:
+    paths:
+      - 'scripts/etf_*.py'
+      - '.github/workflows/etf-monitor.yml'
   schedule:
     # ① 盘中实时初筛: 北京时间 9:00-15:59 每15分钟 (UTC 1:00-7:59)
     - cron: '*/15 1-7 * * 1-5'
