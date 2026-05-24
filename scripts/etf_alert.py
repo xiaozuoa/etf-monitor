@@ -141,7 +141,19 @@ def send_email(analysis, is_post_market, trend, params, min_pct, consec_info):
         lines.append(f"  {a['code']} {a['name']} 现{a['close']:.3f} "
                      f"概率{a['composite_prob']:.0f}% SL-{sl_pct}% TP+{t1_pct}%")
 
-    # ---- 6. 操作 ----
+    # ---- 6. 卖出计划 ----
+    exit_date = (now + timedelta(days=params['hold_days'])).strftime('%m-%d')
+    lines.append("")
+    lines.append("【卖出计划】")
+    lines.append(f"  计划持有: ~{params['hold_days']}个交易日")
+    lines.append(f"  预计卖出: {exit_date} 前后")
+    lines.append(f"  止盈条件: 单只ETF涨超+5% → 分批止盈")
+    lines.append(f"  止损条件: 单只ETF跌破买入价-3% → 立即止损")
+    lines.append(f"  趋势转弱: 50日均线拐头向下 → 清半仓")
+    lines.append(f"  到期未达: 持有至{exit_date}无论盈亏都退出")
+    lines.append(f"  ⚠ 收到卖出邮件时立即操作，不恋战")
+
+    # ---- 7. 操作 ----
     lines.append("")
     lines.append("【操作】")
     if is_post_market:
@@ -190,6 +202,9 @@ def run(is_post_market=None):
 
     use_shares = is_post_market
     use_realtime = not is_post_market
+
+    # 先检查是否需要卖出提醒
+    check_and_send_sell()
 
     print("=" * 60)
     print(f"🔍 ETF v5趋势自适应  {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
@@ -271,10 +286,152 @@ def run(is_post_market=None):
             except: pass
 
     print(f"  🚨 发送...")
-    send_email(analysis, is_post_market=True, trend=trend, params=params,
+    sent = send_email(analysis, is_post_market=True, trend=trend, params=params,
                min_pct=min_pct, consec_info=consec_info)
     log["last_sent"] = f"{datetime.now().strftime('%Y%m%d')}_{datetime.now().isoformat()}"
     with open(log_path, 'w') as f: json.dump(log, f)
+
+    # 记录持仓
+    if sent:
+        record_position(resonance, params, trend)
+
+
+def record_position(resonance, params, trend):
+    """记录本次买入, 用于后续卖出提醒"""
+    pos_path = os.path.join(WORKSPACE, "active_positions.json")
+    now = datetime.now()
+
+    pos = {
+        "entry_date": now.strftime("%Y-%m-%d"),
+        "entry_time": now.isoformat(),
+        "hold_days": params["hold_days"],
+        "exit_date": (now + timedelta(days=params["hold_days"])).strftime("%Y-%m-%d"),
+        "trend": trend["trend"],
+        "etfs": [{"code": e["code"], "name": e["name"],
+                  "entry_price": e["close"], "cp": e["composite_prob"]}
+                 for e in resonance["etfs"][:5]],
+        "stop_loss_pct": 3.0,
+        "target_pct": 5.0,
+        "exited": False,
+    }
+
+    # 加载已有持仓
+    positions = []
+    if os.path.exists(pos_path):
+        try:
+            with open(pos_path, 'r', encoding='utf-8') as f:
+                positions = json.load(f)
+        except: pass
+
+    # 标记旧持仓为已退出(同一批)
+    positions.append(pos)
+    with open(pos_path, 'w', encoding='utf-8') as f:
+        json.dump(positions, f, ensure_ascii=False, indent=2)
+    print(f"  📝 已记录持仓, 预计{pos['exit_date']}卖出")
+
+
+def check_sell_reminder():
+    """检查是否需要发送卖出提醒"""
+    pos_path = os.path.join(WORKSPACE, "active_positions.json")
+    if not os.path.exists(pos_path):
+        return None
+
+    try:
+        with open(pos_path, 'r', encoding='utf-8') as f:
+            positions = json.load(f)
+    except:
+        return None
+
+    now = datetime.now()
+    today = now.strftime("%Y-%m-%d")
+
+    for pos in positions:
+        if pos.get("exited"):
+            continue
+
+        exit_date = pos.get("exit_date", "")
+        hold_days = pos.get("hold_days", 3)
+        entry_date = pos.get("entry_date", "")
+
+        # 判断是否该卖了
+        days_held = (now - datetime.fromisoformat(pos["entry_time"])).days if pos.get("entry_time") else 0
+
+        # 条件1: 到期了
+        if exit_date and today >= exit_date:
+            return {"reason": "持有到期", "position": pos}
+
+        # 条件2: 已持有超过计划天数
+        if days_held >= hold_days:
+            return {"reason": f"已持{days_held}天(计划{hold_days}天)", "position": pos}
+
+        # 条件3: 趋势转弱(用当前趋势判断)
+        trend = detect_market_trend()
+        if trend["trend"] == "down" and trend["strength"] < 40 and days_held >= 2:
+            return {"reason": "趋势转弱, 建议减仓", "position": pos}
+
+    return None
+
+
+def send_sell_email(sell_info):
+    """发送卖出提醒邮件"""
+    if not CFG["smtp_pass"]:
+        return False
+
+    pos = sell_info["position"]
+    reason = sell_info["reason"]
+    now = datetime.now()
+
+    subject = f"🔔 卖出提醒 — {now.strftime('%m-%d %H:%M')}"
+
+    lines = [f"{now.strftime('%Y-%m-%d %H:%M')}"]
+    lines.append("")
+    lines.append(f"【卖出原因】{reason}")
+    lines.append("")
+    lines.append("【持仓明细】(买入日: {0})".format(pos.get('entry_date','?')))
+    for e in pos.get("etfs", []):
+        lines.append(f"  {e['code']} {e['name']} 买入价{e['entry_price']:.3f}")
+
+    lines.append("")
+    lines.append("【操作】")
+    lines.append("  ① 今日收盘前卖出上述ETF")
+    lines.append("  ② 如盘中已有盈利且达到止盈条件, 立即卖出")
+    lines.append("  ③ 底仓(如有)根据趋势决定是否保留")
+    lines.append("")
+    lines.append("--- v5 自动卖出提醒")
+
+    body = "\n".join(lines)
+
+    try:
+        msg = MIMEMultipart()
+        msg["From"] = CFG["email_from"]; msg["To"] = CFG["email_to"]
+        msg["Subject"] = subject
+        msg.attach(MIMEText(body, "plain", "utf-8"))
+        import smtplib as _smtplib
+        server = _smtplib.SMTP_SSL(CFG["smtp_host"], CFG["smtp_port"], timeout=30)
+        server.login(CFG["email_from"], CFG["smtp_pass"])
+        server.sendmail(CFG["email_from"], CFG["email_to"], msg.as_string())
+        server.quit()
+        print(f"  ✅ 卖出提醒已发送")
+
+        # 标记已退出
+        pos["exited"] = True
+        pos_path = os.path.join(WORKSPACE, "active_positions.json")
+        with open(pos_path, 'w', encoding='utf-8') as f:
+            json.dump([pos], f, ensure_ascii=False, indent=2)
+        return True
+    except Exception as e:
+        print(f"  ❌ 卖出邮件失败: {e}")
+        return False
+
+
+def check_and_send_sell():
+    """公开入口: 检查并发送卖出提醒"""
+    sell_info = check_sell_reminder()
+    if sell_info:
+        print(f"\n🔔 检测到卖出信号: {sell_info['reason']}")
+        send_sell_email(sell_info)
+        return True
+    return False
 
 
 if __name__ == "__main__":
