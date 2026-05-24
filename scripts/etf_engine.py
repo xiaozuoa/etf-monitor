@@ -772,17 +772,17 @@ def get_dynamic_params(trend_info):
     above_ma = trend_info.get("above_ma", True)
 
     if t == "up":
-        return {"cp_threshold": 45, "resonance_min": 2, "hold_days": 6,
+        return {"cp_threshold": 45, "resonance_min": 2, "hold_days": 10,
                 "allow_pyramiding": True, "label": "上升(宽松)"}
     elif t == "down":
         return {"cp_threshold": 50, "resonance_min": 3, "hold_days": 3,
                 "allow_pyramiding": False, "label": "下降(防御)"}
     else:  # neutral
         if above_ma:
-            return {"cp_threshold": 50, "resonance_min": 2, "hold_days": 4,
+            return {"cp_threshold": 50, "resonance_min": 2, "hold_days": 7,
                     "allow_pyramiding": False, "label": "中性偏多"}
         else:
-            return {"cp_threshold": 50, "resonance_min": 3, "hold_days": 3,
+            return {"cp_threshold": 50, "resonance_min": 3, "hold_days": 4,
                     "allow_pyramiding": False, "label": "中性偏空"}
 
 
