@@ -416,8 +416,21 @@ def send_sell_email(sell_info):
         # 标记已退出
         pos["exited"] = True
         pos_path = os.path.join(WORKSPACE, "active_positions.json")
+        # 保存所有持仓(不覆盖!)
+        all_positions = []
+        if os.path.exists(pos_path):
+            try:
+                with open(pos_path, 'r', encoding='utf-8') as f:
+                    all_positions = json.load(f)
+            except: pass
+        for i, p in enumerate(all_positions):
+            if p.get("entry_time") == pos.get("entry_time"):
+                all_positions[i] = pos  # 更新退出状态
+                break
+        else:
+            all_positions.append(pos)
         with open(pos_path, 'w', encoding='utf-8') as f:
-            json.dump([pos], f, ensure_ascii=False, indent=2)
+            json.dump(all_positions, f, ensure_ascii=False, indent=2)
         return True
     except Exception as e:
         print(f"  ❌ 卖出邮件失败: {e}")
@@ -425,12 +438,27 @@ def send_sell_email(sell_info):
 
 
 def check_and_send_sell():
-    """公开入口: 检查并发送卖出提醒"""
+    """公开入口: 检查并发送卖出提醒 (每12小时最多一次)"""
+    # 去重检查
+    sell_log_path = os.path.join(WORKSPACE, "sell_sent_log.json")
+    if os.path.exists(sell_log_path):
+        try:
+            with open(sell_log_path, 'r') as f:
+                last_sell = json.load(f).get("last_time", "")
+            if last_sell:
+                last_dt = datetime.fromisoformat(last_sell)
+                if (datetime.now() - last_dt).total_seconds() < 43200:  # 12h
+                    return False
+        except: pass
+
     sell_info = check_sell_reminder()
     if sell_info:
         print(f"\n🔔 检测到卖出信号: {sell_info['reason']}")
-        send_sell_email(sell_info)
-        return True
+        sent = send_sell_email(sell_info)
+        if sent:
+            with open(sell_log_path, 'w') as f:
+                json.dump({"last_time": datetime.now().isoformat()}, f)
+        return sent
     return False
 
 
