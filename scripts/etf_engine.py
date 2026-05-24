@@ -1,0 +1,765 @@
+#!/usr/bin/env python3
+"""
+ETF三因子引擎 v3 — 7项策略改进
+  ① 新浪实时行情(盘中分时)  ② 盘后真实份额确认
+  ③ 相对强弱因子(区分普涨)  ④ 连续日确认(过滤一日游)
+  ⑤ ATR动态止损止盈          ⑥ 北向资金+宏观背景
+  ⑦ 数据驱动权重优化
+"""
+
+import json, urllib.request, ssl, os, sys, io, math
+from datetime import datetime, timedelta
+from collections import defaultdict
+
+if hasattr(sys.stdout, 'buffer') and sys.stdout.encoding != 'utf-8':
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
+
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+if SCRIPT_DIR not in sys.path:
+    sys.path.insert(0, SCRIPT_DIR)
+
+# 复用主脚本的K线fetch
+from etf_v7_threefactor import fetch as _fetch_kline
+
+ssl_ctx = ssl.create_default_context()
+ssl_ctx.check_hostname = False
+ssl_ctx.verify_mode = ssl.CERT_NONE
+
+WORKSPACE = os.path.expanduser("~/.etf-skill/workspace")
+os.makedirs(WORKSPACE, exist_ok=True)
+
+# ---- ETF池 ----
+ETFS = {
+    "510300": {"n": "华泰柏瑞沪深300ETF", "idx": "沪深300", "market": "sh"},
+    "510310": {"n": "易方达沪深300ETF",   "idx": "沪深300", "market": "sh"},
+    "510330": {"n": "华夏沪深300ETF",     "idx": "沪深300", "market": "sh"},
+    "159919": {"n": "嘉实沪深300ETF",     "idx": "沪深300", "market": "sz"},
+    "510050": {"n": "华夏上证50ETF",      "idx": "上证50",  "market": "sh"},
+    "510500": {"n": "华泰柏瑞中证500ETF", "idx": "中证500",  "market": "sh"},
+    "512100": {"n": "南方中证1000ETF",    "idx": "中证1000", "market": "sh"},
+}
+
+
+# ================================================================
+# ① 实时行情 (新浪 — 盘中可用, Free, No Key)
+# ================================================================
+
+def fetch_realtime(codes=None):
+    """获取ETF实时行情。
+    返回: {code: {price, open, prev_close, high, low, volume, amount, change_pct, time}}
+    """
+    if codes is None:
+        codes = list(ETFS.keys())
+
+    sina_codes = [f"{ETFS[c]['market']}{c}" for c in codes]
+    url = "http://hq.sinajs.cn/list=" + ",".join(sina_codes)
+
+    try:
+        req = urllib.request.Request(url, headers={"Referer": "https://finance.sina.com.cn"})
+        with urllib.request.urlopen(req, timeout=10, context=ssl_ctx) as r:
+            raw = r.read().decode("gbk")
+    except:
+        return {}
+
+    results = {}
+    for line in raw.strip().split("\n"):
+        if not line or "=" not in line:
+            continue
+        var_name, values = line.split("=", 1)
+        values = values.strip('"').strip('";')
+        if not values:
+            continue
+
+        # 解析代码: hq_str_sh510300 → 510300
+        code = var_name.replace("var hq_str_", "").replace("sh", "").replace("sz", "")
+        code = code[-6:]  # take last 6 chars
+
+        parts = values.split(",")
+        if len(parts) < 10:
+            continue
+
+        name  = parts[0]
+        open_p  = float(parts[1]) if parts[1] else 0
+        prev_c  = float(parts[2]) if parts[2] else 0
+        price   = float(parts[3]) if parts[3] else 0
+        high    = float(parts[4]) if parts[4] else 0
+        low     = float(parts[5]) if parts[5] else 0
+        volume  = float(parts[8]) if len(parts) > 8 and parts[8] else 0  # 股
+        amount  = float(parts[9]) if len(parts) > 9 and parts[9] else 0  # 元
+
+        change_pct = (price - prev_c) / prev_c * 100 if prev_c > 0 else 0
+
+        results[code] = {
+            "name": name, "price": price, "open": open_p,
+            "prev_close": prev_c, "high": high, "low": low,
+            "volume_shares": volume, "amount": amount,
+            "change_pct": round(change_pct, 3),
+            "time": datetime.now().isoformat(),
+        }
+    return results
+
+
+# ================================================================
+# ② 盘后份额确认 (akshare — 盘后19:00后可用)
+# ================================================================
+
+def fetch_shares_confirmation():
+    """盘后获取真实份额数据。
+    返回: {code: {shares_yi, delta_yi, delta_pct}}
+    盘中返回 None（份额数据未更新）
+    """
+    try:
+        import akshare as ak
+    except ImportError:
+        return None
+
+    now = datetime.now()
+    # 盘后19:00前不查（份额还没更新）
+    if now.hour < 19:
+        return None
+
+    today_str = now.strftime("%Y%m%d")
+    shares = {}
+
+    try:
+        # 上交所份额
+        df_sse = ak.fund_etf_scale_sse(date=today_str)
+        if df_sse is not None and not df_sse.empty:
+            for _, row in df_sse.iterrows():
+                code = str(row.get("基金代码", ""))
+                if code in ETFS:
+                    shares_yi = float(row.get("基金份额", 0)) / 1e8  # 转为亿份
+                    shares[code] = {"shares_yi": shares_yi, "source": "sse"}
+
+        # 深交所份额
+        df_szse = ak.fund_scale_daily_szse(start_date=today_str, end_date=today_str, symbol="ETF")
+        if df_szse is not None and not df_szse.empty:
+            for _, row in df_szse.iterrows():
+                code = str(row.get("基金代码", ""))
+                if code in ETFS:
+                    shares_yi = float(row.get("基金份额", 0)) / 1e8
+                    shares[code] = {"shares_yi": shares_yi, "source": "szse"}
+    except:
+        pass
+
+    if not shares:
+        return None
+
+    # 与昨日对比计算delta
+    hist_path = os.path.join(WORKSPACE, "etf_shares_history.json")
+    if os.path.exists(hist_path):
+        try:
+            with open(hist_path, "r", encoding="utf-8") as f:
+                hist = json.load(f)
+            yesterday = (now - timedelta(days=1)).strftime("%Y-%m-%d")
+            for code in shares:
+                if yesterday in hist and code in hist[yesterday]:
+                    prev_shares = hist[yesterday][code].get("shares_yi", 0)
+                    if prev_shares > 0:
+                        delta = shares[code]["shares_yi"] - prev_shares
+                        shares[code]["delta_yi"] = round(delta, 4)
+                        shares[code]["delta_pct"] = round(delta / prev_shares * 100, 3)
+        except:
+            pass
+
+    for code in shares:
+        shares[code].setdefault("delta_yi", 0)
+        shares[code].setdefault("delta_pct", 0)
+
+    return shares
+
+
+# ================================================================
+# ③ 相对强弱因子 (区分国家队 vs 普涨)
+# ================================================================
+
+def calc_relative_strength(etf_change_pct, idx_change_pct, vol_ratio):
+    """
+    计算相对强弱得分。
+    核心理念: 国家队护盘特征 —
+      - 大盘跌 + ETF涨(或抗跌) → 国家队迹象
+      - 大盘涨 + ETF跟涨 → 普通普涨，不加分
+      - ETF超额收益显著 + 放量 → 机构行为
+    返回: (rs_score, is_counter_market)
+    """
+    excess = etf_change_pct - idx_change_pct
+
+    score = 0
+    is_counter = False
+
+    # 逆市抗跌: 大盘跌但ETF不跌或微涨 → 国家队托底特征
+    if idx_change_pct < -0.5 and etf_change_pct > idx_change_pct + 0.3:
+        score += 40
+        is_counter = True
+        # 跌幅越大,抗跌越强,加分越多
+        if idx_change_pct < -1.5:
+            score += min(20, abs(idx_change_pct) * 3)
+
+    # 放量抗跌: 大盘跌 + ETF放量抗跌 → 强烈国家队信号
+    if idx_change_pct < -0.5 and vol_ratio > 1.3 and etf_change_pct > idx_change_pct + 0.5:
+        score += 25
+
+    # 超额收益: ETF显著跑赢大盘
+    if excess > 0.3:
+        score += min(20, excess * 6)
+
+    # 普涨折扣: 大盘大涨+ETF跟涨 → 可能是普涨, 减分
+    if idx_change_pct > 1.5 and 0 < excess < 0.3:
+        score -= 15  # ETF只是跟涨,不是国家队
+    if idx_change_pct > 2.0 and excess < 0.5:
+        score -= 10
+
+    # 缩量大涨 → 不是国家队(国家队操作必然放量)
+    if etf_change_pct > 1.5 and vol_ratio < 0.8:
+        score -= 20
+
+    return max(0, min(100, score)), is_counter
+
+
+# ================================================================
+# ④ 连续日确认
+# ================================================================
+
+def check_consecutive_days(mid_count_today, high_count_today):
+    """检查是否形成连续战役。
+    返回: (consecutive_days, campaign_detected, confidence_boost)
+    """
+    hist_path = os.path.join(WORKSPACE, "signal_history.json")
+    if not os.path.exists(hist_path):
+        return 1, False, 0
+
+    try:
+        with open(hist_path, "r", encoding="utf-8") as f:
+            history = json.load(f)
+    except:
+        return 1, False, 0
+
+    today = datetime.now().strftime("%Y-%m-%d")
+    consecutive = 1
+    boost = 0
+
+    for i in range(1, 6):  # 回溯前5个交易日
+        check_date = (datetime.now() - timedelta(days=i)).strftime("%Y-%m-%d")
+        found = False
+        for entry in history:
+            if entry.get("date") == check_date:
+                if entry.get("mid_count", 0) >= 3:
+                    consecutive += 1
+                    found = True
+                    break
+        if not found:
+            break
+
+    campaign = consecutive >= 2
+    if campaign:
+        boost = min(30, consecutive * 10)  # 连续越久,加码越多
+
+    return consecutive, campaign, boost
+
+
+# ================================================================
+# ⑤ ATR动态止损止盈
+# ================================================================
+
+def calc_atr(code, period=14):
+    """计算ETF的ATR（平均真实波幅）"""
+    data = _fetch_kline(code, period + 5)
+    if len(data) < period:
+        return None
+
+    tr_values = []
+    for i in range(1, min(len(data), period + 1)):
+        high = data[-i]["h"]
+        low  = data[-i]["l"]
+        prev_c = data[-i-1]["c"]
+        tr = max(high - low, abs(high - prev_c), abs(low - prev_c))
+        tr_values.append(tr)
+
+    if not tr_values:
+        return None
+
+    atr = sum(tr_values) / len(tr_values)
+    return {
+        "atr": round(atr, 4),
+        "atr_pct": round(atr / data[-1]["c"] * 100, 2),  # ATR占价格百分比
+        "stop_loss": round(data[-1]["c"] - atr * 2, 3),   # 2倍ATR止损
+        "trail_stop": round(data[-1]["c"] - atr * 1.5, 3), # 1.5倍ATR跟踪
+        "target_1": round(data[-1]["c"] + atr * 2, 3),     # 2倍ATR第一目标
+        "target_2": round(data[-1]["c"] + atr * 3, 3),     # 3倍ATR第二目标
+    }
+
+
+def get_stop_loss_recommendation(code):
+    """获取某只ETF的止损止盈建议文本"""
+    atr_info = calc_atr(code)
+    if not atr_info:
+        return None
+
+    return {
+        "etf": code,
+        "name": ETFS[code]["n"],
+        "atr": atr_info["atr"],
+        "atr_pct": atr_info["atr_pct"],
+        "stop_loss": atr_info["stop_loss"],
+        "stop_loss_pct": round(atr_info["atr_pct"] * 2, 2),
+        "trailing_stop_pct": round(atr_info["atr_pct"] * 1.5, 2),
+        "target_1_pct": round(atr_info["atr_pct"] * 2, 2),
+        "target_2_pct": round(atr_info["atr_pct"] * 3, 2),
+    }
+
+
+# ================================================================
+# ⑥ 宏观背景: 北向资金 + 连跌天数
+# ================================================================
+
+def fetch_north_flow():
+    """获取北向资金净流向。
+    返回: {net_flow_yi, consecutive_inflow_days, signal}
+    盘中用东方财富API, 失败则返回None
+    """
+    try:
+        # 东方财富北向资金实时API
+        url = ("https://push2.eastmoney.com/api/qt/kamt.kline/get?"
+               "fields1=f1,f2,f3,f4&fields2=f51,f52,f53,f54&klt=101&lmt=5")
+        req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+        with urllib.request.urlopen(req, timeout=10, context=ssl_ctx) as r:
+            data = json.loads(r.read())
+
+        if not data or not data.get("data") or not data["data"].get("klines"):
+            return None
+
+        klines = data["data"]["klines"]
+        if not klines:
+            return None
+
+        latest = klines[-1].split(",")
+        net_flow = float(latest[3]) if len(latest) > 3 else 0  # 北向净流入(万)
+
+        # 判断连续流入天数
+        consecutive = 0
+        for k in reversed(klines):
+            parts = k.split(",")
+            flow = float(parts[3]) if len(parts) > 3 else 0
+            if flow > 0:
+                consecutive += 1
+            else:
+                break
+
+        return {
+            "net_flow_yi": round(net_flow / 10000, 2),  # 转为亿元
+            "consecutive_inflow": consecutive,
+            "signal": "inflow" if net_flow > 0 else "outflow",
+            "strong": abs(net_flow) > 500000,  # 50亿以上视为显著
+        }
+    except:
+        return None
+
+
+def get_market_decline_days():
+    """获取沪深300连续下跌天数"""
+    idx_data = _fetch_kline("sh000300", 20)
+    if len(idx_data) < 5:
+        return 0
+
+    decline_days = 0
+    for i in range(len(idx_data) - 1, 0, -1):
+        if idx_data[i]["c"] < idx_data[i-1]["c"]:
+            decline_days += 1
+        else:
+            break
+    return decline_days
+
+
+def get_macro_context():
+    """获取完整宏观背景。
+    返回: {north_flow, decline_days, fear_level, context_score}
+    """
+    ctx = {
+        "north_flow": fetch_north_flow(),
+        "decline_days": get_market_decline_days(),
+        "fear_level": "normal",
+        "context_score": 0,
+    }
+
+    # 恐惧程度: 连跌越多越恐惧 → 国家队越可能出手
+    if ctx["decline_days"] >= 5:
+        ctx["fear_level"] = "extreme"
+        ctx["context_score"] += 30
+    elif ctx["decline_days"] >= 3:
+        ctx["fear_level"] = "high"
+        ctx["context_score"] += 20
+    elif ctx["decline_days"] >= 1:
+        ctx["fear_level"] = "moderate"
+        ctx["context_score"] += 5
+
+    # 北向剧烈流出 + 市场连跌 → 国家队维稳概率极高
+    if ctx["north_flow"]:
+        if ctx["north_flow"]["signal"] == "outflow" and ctx["north_flow"]["strong"]:
+            ctx["context_score"] += 20  # 北向跑路时国家队常出手
+        elif ctx["north_flow"]["signal"] == "inflow" and ctx["north_flow"]["consecutive_inflow"] >= 3:
+            ctx["context_score"] += 15  # 北向+国家队共振,牛市确认
+
+    return ctx
+
+
+# ================================================================
+# ⑦ 权重优化引擎
+# ================================================================
+
+def optimize_weights():
+    """
+    基于60天历史数据的权重网格搜索。
+    评估标准: 信号后的平均3日超额收益。
+    返回: 最优权重组合
+    """
+    print("🔧 正在优化因子权重 (60天回溯)...")
+
+    # 收集历史数据
+    all_signals = []
+    for code, info in ETFS.items():
+        data = _fetch_kline(code, 60)
+        idx_data = _fetch_kline("sh000300", 60)
+        if len(data) < 25 or len(idx_data) < 25:
+            continue
+
+        # 对齐日期
+        date_to_idx = {d["date"]: i for i, d in enumerate(idx_data)}
+
+        for i in range(20, len(data) - 5):
+            date = data[i]["date"]
+            idx_i = date_to_idx.get(date, -1)
+            if idx_i < 1:
+                continue
+
+            c, v = data[i]["c"], data[i]["v"]
+            prev_c = data[i-1]["c"]
+            change_pct = (c - prev_c) / prev_c * 100 if prev_c > 0 else 0
+
+            # 指数涨跌
+            idx_c = idx_data[idx_i]["c"]
+            idx_prev = idx_data[idx_i-1]["c"]
+            idx_chg = (idx_c - idx_prev) / idx_prev * 100 if idx_prev > 0 else 0
+
+            # 20日均量
+            vols = [data[j]["v"] for j in range(max(0, i-19), i+1)]
+            vol_ma20 = sum(vols) / len(vols)
+            vol_ratio = v / vol_ma20 if vol_ma20 > 0 else 1
+
+            # 量能因子原始值
+            vol_raw = min(1, max(0, (vol_ratio - 0.7) / 1.3))
+
+            # 方向/相对强弱因子原始值
+            excess = change_pct - idx_chg
+            dir_raw = 0
+            if idx_chg < 0 and change_pct > 0:
+                dir_raw = 0.6
+            elif idx_chg < -0.5 and change_pct > idx_chg + 0.3:
+                dir_raw = 0.3
+            elif excess > 0.3:
+                dir_raw = min(1, excess * 0.15)
+            dir_raw = max(0, min(1, dir_raw))
+
+            # 份额因子 (历史回测用固定值)
+            share_raw = 0.12
+
+            # 后续收益
+            ret_3d = None
+            if i + 3 < len(data):
+                ret_3d = (data[i+3]["c"] - c) / c * 100
+
+            all_signals.append({
+                "code": code, "date": date,
+                "vol_raw": vol_raw, "dir_raw": dir_raw, "share_raw": share_raw,
+                "ret_3d": ret_3d,
+            })
+
+    if len(all_signals) < 30:
+        return {"vol": 0.50, "dir": 0.20, "share": 0.30}  # 默认值
+
+    # 网格搜索
+    best_score = -999
+    best_weights = {"vol": 0.50, "dir": 0.20, "share": 0.30}
+
+    for vw in range(20, 71, 5):
+        for dw in range(5, 51, 5):
+            sw = 100 - vw - dw
+            if sw < 5 or sw > 55:
+                continue
+
+            vw_n = vw / 100.0
+            dw_n = dw / 100.0
+            sw_n = sw / 100.0
+
+            # 计算每个信号的综合概率
+            signals_with_cp = []
+            for s in all_signals:
+                cp = s["vol_raw"] * vw_n + s["dir_raw"] * dw_n + s["share_raw"] * sw_n
+                signals_with_cp.append({"cp": cp * 100, "ret_3d": s["ret_3d"]})
+
+            # 只看≥50%的信号
+            high = [s for s in signals_with_cp if s["cp"] >= 50 and s["ret_3d"] is not None]
+            if len(high) < 5:
+                continue
+
+            avg_ret = sum(s["ret_3d"] for s in high) / len(high)
+            pos_rate = sum(1 for s in high if s["ret_3d"] > 0) / len(high)
+
+            # 综合得分: 平均收益 × 胜率 × 信号数(避免过拟合)
+            score = avg_ret * pos_rate * min(len(high), 30)
+
+            if score > best_score:
+                best_score = score
+                best_weights = {"vol": vw_n, "dir": dw_n, "share": sw_n}
+
+    print(f"  最优权重: 量能{best_weights['vol']*100:.0f}% "
+          f"方向{best_weights['dir']*100:.0f}% "
+          f"份额{best_weights['share']*100:.0f}%")
+    print(f"  得分: {best_score:.2f}")
+
+    return best_weights
+
+
+# ================================================================
+# 综合分析入口
+# ================================================================
+
+def full_analysis(codes=None, use_realtime=False, use_shares=False, weights=None):
+    """
+    完整三因子分析（整合所有改进）。
+
+    参数:
+      codes: ETF代码列表, None=全部
+      use_realtime: True=新浪实时行情, False=日K线
+      use_shares: True=获取真实份额, False=用默认值
+      weights: 权重dict, None=默认50/20/30
+
+    返回:
+      {results: [...], resonance: {...}, macro: {...}, atr_stops: {...}}
+    """
+    if codes is None:
+        codes = list(ETFS.keys())
+    if weights is None:
+        weights = {"vol": 0.50, "dir": 0.20, "share": 0.30}
+
+    # ---- 宏观背景 ----
+    macro = get_macro_context()
+
+    # ---- 实时或日线行情 ----
+    if use_realtime:
+        rt = fetch_realtime(codes)
+    else:
+        rt = None
+
+    # ---- 份额数据 ----
+    if use_shares:
+        shares = fetch_shares_confirmation()
+    else:
+        shares = None
+
+    # ---- 逐只分析 ----
+    idx_data = _fetch_kline("sh000300", 60)
+    idx_chg = 0
+    if len(idx_data) >= 2:
+        idx_chg = (idx_data[-1]["c"] - idx_data[-2]["c"]) / idx_data[-2]["c"] * 100
+
+    results = []
+    for code in codes:
+        info = ETFS[code]
+        data = _fetch_kline(code, 60)
+        if len(data) < 20:
+            continue
+
+        latest = data[-1]
+        c, v = latest["c"], latest["v"]
+
+        # 如果有实时数据，使用实时价格
+        if rt and code in rt:
+            c = rt[code]["price"]
+            change_pct = rt[code]["change_pct"]
+            # Sina返回股, 腾讯K线返回手 → 统一为手
+            v = rt[code]["volume_shares"] / 100  # 股→手
+        else:
+            change_pct = 0
+            if len(data) >= 2:
+                change_pct = (c - data[-2]["c"]) / data[-2]["c"] * 100
+
+        # 20日均量
+        vols = [d["v"] for d in data[-20:]]
+        vol_ma20 = sum(vols) / 20
+        vol_ratio = v / vol_ma20 if vol_ma20 > 0 else 1
+
+        # === 量能因子 (原始值 0-1) ===
+        vol_raw = min(1.0, max(0.0, (vol_ratio - 0.7) / 1.3)) if vol_ratio >= 0.7 else 0.0
+
+        # === 相对强弱因子 (原始值 0-1) — 替代旧的方向因子 ===
+        rs_score, is_counter = calc_relative_strength(change_pct, idx_chg, vol_ratio)
+        dir_raw = rs_score / 100.0
+
+        # === 份额因子 (原始值 0-1) ===
+        share_raw = 0.12  # 默认基准
+        if shares and code in shares:
+            delta_pct = shares[code].get("delta_pct", 0)
+            if delta_pct > 0.5:
+                share_raw = min(1.0, 0.12 + delta_pct * 0.06)  # 正申购→加分
+            elif delta_pct < -1:
+                share_raw = max(0.0, 0.12 + delta_pct * 0.03)  # 大额赎回→减分
+            share_raw = max(0.0, min(1.0, share_raw))
+
+        # === 综合概率 ===
+        cp = (vol_raw * weights["vol"] + dir_raw * weights["dir"] + share_raw * weights["share"]) * 100
+
+        # === 宏观调整 ===
+        cp += macro["context_score"] * 0.3  # 宏观最多影响±15%
+        cp = max(0, min(100, cp))
+
+        signal = "HIGH" if cp >= 60 else ("MID" if cp >= 50 else "LOW")
+
+        results.append({
+            "code": code, "name": info["n"], "idx_name": info["idx"],
+            "date": latest["date"], "close": c,
+            "change_pct": round(change_pct, 2),
+            "vol_ratio": round(vol_ratio, 2),
+            "vol_prob": round(vol_raw * 100, 1),
+            "dir_prob": round(dir_raw * 100, 1),
+            "share_prob": round(share_raw * 100, 1),
+            "composite_prob": round(cp, 1),
+            "signal": signal,
+            "is_counter_market": is_counter,
+            "idx_chg": round(idx_chg, 2),
+        })
+
+    # ---- 共振检测 ----
+    mid_or_high = [r for r in results if r["composite_prob"] >= 50]
+    high_only   = [r for r in results if r["composite_prob"] >= 60]
+
+    # 连续日确认
+    consecutive, campaign, conf_boost = check_consecutive_days(
+        len(mid_or_high), len(high_only)
+    )
+
+    resonance = {
+        "triggered": len(mid_or_high) >= 3,
+        "high_count": len(high_only),
+        "mid_count": len(mid_or_high),
+        "consecutive_days": consecutive,
+        "campaign_detected": campaign,
+        "confidence_boost": conf_boost,
+        "etfs": mid_or_high,
+    }
+
+    # ---- ATR止损建议 ----
+    atr_stops = {}
+    if mid_or_high:
+        for r in mid_or_high[:5]:
+            atr = get_stop_loss_recommendation(r["code"])
+            if atr:
+                atr_stops[r["code"]] = atr
+
+    return {
+        "results": results,
+        "resonance": resonance,
+        "macro": macro,
+        "atr_stops": atr_stops,
+        "weights_used": weights,
+        "mode": "realtime" if use_realtime else "daily",
+    }
+
+
+# ================================================================
+# 信号历史管理
+# ================================================================
+
+def save_signal_history(resonance_info):
+    history_path = os.path.join(WORKSPACE, "signal_history.json")
+    try:
+        history = []
+        if os.path.exists(history_path):
+            with open(history_path, "r", encoding="utf-8") as f:
+                history = json.load(f)
+    except:
+        history = []
+
+    today = datetime.now().strftime("%Y-%m-%d")
+    history = [h for h in history if h.get("date") != today]
+    history.append({
+        "date": today,
+        "time": datetime.now().isoformat(),
+        "mid_count": resonance_info["mid_count"],
+        "high_count": resonance_info["high_count"],
+        "consecutive": resonance_info.get("consecutive_days", 1),
+    })
+    with open(history_path, "w", encoding="utf-8") as f:
+        json.dump(history[-30:], f, ensure_ascii=False, indent=2)
+
+
+def get_optimal_weights():
+    """获取最优权重(缓存24小时)"""
+    cache_path = os.path.join(WORKSPACE, "optimal_weights.json")
+    now = datetime.now()
+
+    # 检查缓存
+    if os.path.exists(cache_path):
+        try:
+            with open(cache_path, "r", encoding="utf-8") as f:
+                cache = json.load(f)
+            cache_time = datetime.fromisoformat(cache.get("time", "2000-01-01"))
+            if (now - cache_time).total_seconds() < 86400:
+                return cache["weights"]
+        except:
+            pass
+
+    # 重新优化
+    weights = optimize_weights()
+    with open(cache_path, "w", encoding="utf-8") as f:
+        json.dump({"time": now.isoformat(), "weights": weights}, f)
+    return weights
+
+
+# ================================================================
+# 测试
+# ================================================================
+
+if __name__ == "__main__":
+    print("=" * 60)
+    print("ETF引擎 v3 功能测试")
+    print("=" * 60)
+
+    print("\n① 实时行情测试:")
+    rt = fetch_realtime()
+    for code, d in list(rt.items())[:3]:
+        print(f"  {code}: {d['price']:.3f} | {d['change_pct']:+.3f}% | 量{d['volume_shares']:.0f}股")
+
+    print("\n② 份额数据测试:")
+    shares = fetch_shares_confirmation()
+    if shares:
+        for code, d in list(shares.items())[:3]:
+            print(f"  {code}: {d['shares_yi']:.1f}亿 | Δ{d['delta_pct']:+.2f}%")
+    else:
+        print("  (盘前/盘中, 份额数据尚不可用)")
+
+    print("\n③ 相对强弱测试:")
+    print(f"  大盘跌1%+ETF涨0.5% → {calc_relative_strength(0.5, -1.0, 1.5)}")
+    print(f"  大盘涨2%+ETF涨2.5% → {calc_relative_strength(2.5, 2.0, 0.9)}")
+    print(f"  大盘跌2%+ETF微跌0.2%+放量1.5x → {calc_relative_strength(-0.2, -2.0, 1.5)}")
+
+    print("\n④ 连续日确认:")
+    cons, camp, boost = check_consecutive_days(4, 2)
+    print(f"  4中+2高 → 连续{cons}日, 战役={'是' if camp else '否'}, 加码{boost}")
+
+    print("\n⑤ ATR止损测试:")
+    atr = calc_atr("510300")
+    if atr:
+        print(f"  510300 ATR={atr['atr']:.4f} ({atr['atr_pct']}%) | "
+              f"止损{atr['stop_loss']:.3f} | 目标{atr['target_1']:.3f}")
+
+    print("\n⑥ 宏观背景:")
+    macro = get_macro_context()
+    print(f"  连跌: {macro['decline_days']}日 | 恐惧: {macro['fear_level']} | 评分: {macro['context_score']}")
+    if macro["north_flow"]:
+        print(f"  北向: {macro['north_flow']['net_flow_yi']:.1f}亿 | {macro['north_flow']['signal']}")
+
+    print("\n⑦ 权重优化:")
+    weights = get_optimal_weights()
+    print(f"  最优: v={weights['vol']:.0%} d={weights['dir']:.0%} s={weights['share']:.0%}")
+
+    print("\n--- 全部分测试完成 ---")

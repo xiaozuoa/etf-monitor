@@ -1,15 +1,27 @@
-name: ETF国家队实时监控
+name: ETF国家队共振监控 v3
 
 on:
   schedule:
-    # 北京时间 9:30-19:00 每15分钟 (UTC 1:30-11:00)
-    - cron: '*/15 1-11 * * 1-5'
-  workflow_dispatch:  # 手动触发
+    # ① 盘中实时初筛: 北京时间 9:00-15:59 每15分钟 (UTC 1:00-7:59)
+    - cron: '*/15 1-7 * * 1-5'
+    # ② 盘后份额确认: 北京时间 19:00 (UTC 11:00)
+    - cron: '0 11 * * 1-5'
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: '模式: intraday=盘中初筛, postmarket=盘后确认'
+        required: false
+        default: 'auto'
+        type: choice
+        options:
+          - auto
+          - intraday
+          - postmarket
 
 jobs:
   monitor:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 10
 
     steps:
       - uses: actions/checkout@v4
@@ -22,9 +34,36 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
 
-      - name: Run ETF Alert Monitor
+      - name: Determine mode
+        id: mode
+        run: |
+          if [ "${{ github.event.inputs.mode }}" = "intraday" ]; then
+            echo "mode=intraday" >> $GITHUB_OUTPUT
+          elif [ "${{ github.event.inputs.mode }}" = "postmarket" ]; then
+            echo "mode=postmarket" >> $GITHUB_OUTPUT
+          else
+            # 自动判断: schedule cron 触发时根据时间判断
+            BJ_HOUR=$(TZ=Asia/Shanghai date +%H)
+            if [ "$BJ_HOUR" -ge 19 ]; then
+              echo "mode=postmarket" >> $GITHUB_OUTPUT
+            else
+              echo "mode=intraday" >> $GITHUB_OUTPUT
+            fi
+          fi
+          echo "Beijing hour: $(TZ=Asia/Shanghai date +%H:%M)"
+
+      - name: Run monitor
         env:
+          TZ: Asia/Shanghai
           ETF_EMAIL_FROM: ${{ secrets.ETF_EMAIL_FROM }}
           ETF_EMAIL_TO: ${{ secrets.ETF_EMAIL_TO }}
           SMTP_PASS: ${{ secrets.SMTP_PASS }}
-        run: python scripts/etf_alert.py
+        run: |
+          cd scripts
+          if [ "${{ steps.mode.outputs.mode }}" = "postmarket" ]; then
+            echo ">>> 盘后份额确认模式 (发送买入邮件)"
+            python -c "from etf_alert import run; run(is_post_market=True)"
+          else
+            echo ">>> 盘中实时初筛模式 (仅记录, 不发邮件)"
+            python -c "from etf_alert import run; run(is_post_market=False)"
+          fi
