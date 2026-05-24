@@ -716,140 +716,12 @@ def get_optimal_weights():
 
 
 # ================================================================
-# v4 新增: 趋势检测 + 动态阈值 + ATR跟踪退出
-# ================================================================
-
-def detect_market_trend(code="510300", ma_period=50):
-    """检测市场趋势。
-    返回: {trend: 'up'|'down'|'neutral', slope: 均线斜率(%), strength: 0-100}
-    """
-    data = _fetch_kline(code, ma_period + 10)
-    if len(data) < ma_period:
-        return {"trend": "neutral", "slope": 0, "strength": 50}
-
-    # 计算MA
-    closes = [d["c"] for d in data[-ma_period:]]
-    ma_now = sum(closes) / len(closes)
-
-    # MA斜率: (当前MA - 10天前MA) / 10天前MA
-    ma_10d_ago = sum(closes[:10]) / 10
-    slope = (ma_now - ma_10d_ago) / ma_10d_ago * 100 if ma_10d_ago > 0 else 0
-
-    # 价格在MA之上/之下
-    current = data[-1]["c"]
-    above_ma = current > ma_now
-
-    if slope > 1.0 and above_ma:
-        trend = "up"
-        strength = min(100, 50 + slope * 15)
-    elif slope < -1.0 and not above_ma:
-        trend = "down"
-        strength = min(100, 50 + abs(slope) * 15)
-    else:
-        trend = "neutral"
-        strength = 50
-
-    return {
-        "trend": trend,
-        "slope": round(slope, 2),
-        "strength": round(strength, 1),
-        "ma": round(ma_now, 3),
-        "current": current,
-        "above_ma": above_ma,
-    }
-
-
-def get_dynamic_params(trend_info):
-    """根据趋势返回动态策略参数。
-    牛市: 放宽条件(≥2只,≥45%), 延长持有(5-8天)
-    熊市: 收紧条件(≥3只,≥50%), 缩短持有(3天)
-    震荡: 默认条件
-
-    返回: {cp_threshold, resonance_min, hold_days, allow_pyramiding}
-    """
-    t = trend_info["trend"]
-
-    if t == "up":
-        return {"cp_threshold": 45, "resonance_min": 2, "hold_days": 6,
-                "allow_pyramiding": True, "label": "趋势(宽松)"}
-    elif t == "down":
-        return {"cp_threshold": 50, "resonance_min": 3, "hold_days": 3,
-                "allow_pyramiding": False, "label": "防御(收紧)"}
-    else:
-        return {"cp_threshold": 50, "resonance_min": 3, "hold_days": 3,
-                "allow_pyramiding": False, "label": "震荡(默认)"}
-
-
-def calc_dynamic_exit(entry_price, highest_since_entry, atr, days_held,
-                       time_stop=8, target_pct=5.0, trail_mult=1.5):
-    """动态退出判断。
-
-    参数:
-      entry_price: 买入价
-      highest_since_entry: 持仓期间最高收盘价
-      atr: 当前ATR值
-      days_held: 已持有天数
-      time_stop: 时间止损(天)
-      target_pct: 目标止盈(%)
-      trail_mult: 跟踪止损ATR倍数
-
-    返回: (should_exit: bool, reason: str, exit_price: float|None)
-    """
-    # ① 时间止损
-    if days_held >= time_stop:
-        return True, f"时间止损(持{days_held}天)", None
-
-    # ② 目标止盈
-    profit_pct = (highest_since_entry - entry_price) / entry_price * 100
-    if profit_pct >= target_pct:
-        return True, f"目标止盈(+{profit_pct:.1f}%)", None
-
-    # ③ ATR跟踪止损
-    trail_stop = highest_since_entry - atr * trail_mult
-    current_trigger = trail_stop  # 如果收盘价跌破此价就卖
-
-    # 追踪止损只在盈利后才激活（买入价作为初始止损）
-    if profit_pct > 0:
-        return False, "", trail_stop
-    else:
-        # 亏损中: 用固定2倍ATR止损
-        hard_stop = entry_price - atr * 2
-        return False, "", hard_stop
-
-
-# ================================================================
-# v4 新增: 核心-卫星组合模拟
-# ================================================================
-
-def core_satellite_equity(strategy_equity, bh_equity, core_pct=0.70):
-    """核心-卫星组合权益曲线。
-    core_pct: 买持比例 (默认70%)
-    satellite_pct: 策略比例 (默认30%)
-    """
-    if not strategy_equity or not bh_equity:
-        return None
-
-    min_len = min(len(strategy_equity), len(bh_equity))
-    sat_pct = 1.0 - core_pct
-
-    combined = []
-    for i in range(min_len):
-        strategy_val = strategy_equity[i] / strategy_equity[0] * INITIAL_CAPITAL
-        bh_val = bh_equity[i] / bh_equity[0] * INITIAL_CAPITAL
-        combined.append(strategy_val * sat_pct + bh_val * core_pct)
-
-    return combined
-
-INITIAL_CAPITAL = 100000  # used by core_satellite_equity
-
-
-# ================================================================
 # 测试
 # ================================================================
 
 if __name__ == "__main__":
     print("=" * 60)
-    print("ETF引擎 v4 功能测试")
+    print("ETF引擎 v3 功能测试")
     print("=" * 60)
 
     print("\n① 实时行情测试:")
@@ -890,14 +762,4 @@ if __name__ == "__main__":
     weights = get_optimal_weights()
     print(f"  最优: v={weights['vol']:.0%} d={weights['dir']:.0%} s={weights['share']:.0%}")
 
-    print("\n⑧ v4 趋势检测:")
-    trend = detect_market_trend()
-    print(f"  趋势: {trend['trend']} | 斜率: {trend['slope']}% | 强度: {trend['strength']}")
-    params = get_dynamic_params(trend)
-    print(f"  动态参数: {params}")
-
-    print("\n⑨ v4 动态退出:")
-    exit_info = calc_dynamic_exit(4.5, 4.7, 0.075, days_held=5, time_stop=8, target_pct=5.0)
-    print(f"  买4.5, 最高4.7, 持5天, ATR=0.075 → {exit_info}")
-
-    print("\n--- v4全部测试完成 ---")
+    print("\n--- 全部分测试完成 ---")
