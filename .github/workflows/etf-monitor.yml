@@ -1,0 +1,30 @@
+name: ETF国家队实时监控
+
+on:
+  schedule:
+    # 北京时间 9:30-19:00 每15分钟 (UTC 1:30-11:00)
+    - cron: '*/15 1-11 * * 1-5'
+  workflow_dispatch:  # 手动触发
+
+jobs:
+  monitor:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run ETF Alert Monitor
+        env:
+          ETF_EMAIL_FROM: ${{ secrets.ETF_EMAIL_FROM }}
+          ETF_EMAIL_TO: ${{ secrets.ETF_EMAIL_TO }}
+          SMTP_PASS: ${{ secrets.SMTP_PASS }}
+        run: python scripts/etf_alert.py

@@ -1,0 +1,10 @@
+workspace/etf_history.db
+workspace/ETF三因子分析-v7.html
+workspace/ETF三因子分析-v7.json
+workspace/etf_shares_history.json
+workspace/alert_sent.json
+workspace/signal_history.json
+workspace/alert_config.json
+scripts/__pycache__/
+__pycache__/
+*.pyc
