@@ -37,8 +37,6 @@ ETFS = {
     "510050": {"n": "华夏上证50ETF",      "idx": "上证50",  "market": "sh"},
     "510500": {"n": "华泰柏瑞中证500ETF", "idx": "中证500",  "market": "sh"},
     "512100": {"n": "南方中证1000ETF",    "idx": "中证1000", "market": "sh"},
-    "588000": {"n": "华夏科创50ETF",      "idx": "科创50",  "market": "sh"},
-    "159915": {"n": "易方达创业板ETF",    "idx": "创业板",  "market": "sz"},
 }
 
 
@@ -763,51 +761,23 @@ def detect_market_trend(code="510300", ma_period=50):
 
 def get_dynamic_params(trend_info):
     """根据趋势返回动态策略参数。
-    牛市: ≥2只≥45%, 持6天, 可叠仓
-    中性+价在MA上: ≥2只≥50%, 持4天   ← v5新增: 修复慢牛盲区
-    中性+价在MA下: ≥3只≥50%, 持3天
-    熊市: ≥3只≥50%, 持3天, 不追
+    牛市: 放宽条件(≥2只,≥45%), 延长持有(5-8天)
+    熊市: 收紧条件(≥3只,≥50%), 缩短持有(3天)
+    震荡: 默认条件
+
+    返回: {cp_threshold, resonance_min, hold_days, allow_pyramiding}
     """
     t = trend_info["trend"]
-    above_ma = trend_info.get("above_ma", True)
 
     if t == "up":
         return {"cp_threshold": 45, "resonance_min": 2, "hold_days": 6,
-                "allow_pyramiding": True, "label": "上升(宽松)"}
+                "allow_pyramiding": True, "label": "趋势(宽松)"}
     elif t == "down":
         return {"cp_threshold": 50, "resonance_min": 3, "hold_days": 3,
-                "allow_pyramiding": False, "label": "下降(防御)"}
-    else:  # neutral
-        if above_ma:
-            return {"cp_threshold": 50, "resonance_min": 2, "hold_days": 4,
-                    "allow_pyramiding": False, "label": "中性偏多"}
-        else:
-            return {"cp_threshold": 50, "resonance_min": 3, "hold_days": 3,
-                    "allow_pyramiding": False, "label": "中性偏空"}
-
-
-def get_min_position(trend_info):
-    """根据趋势强度返回建议底仓比例。
-    趋势越强, 底仓越高 — 确保不踏空慢牛。
-    返回: (min_pct, reason)
-    """
-    strength = trend_info.get("strength", 50)
-    t = trend_info["trend"]
-
-    if strength >= 70:
-        return 0.40, f"趋势强劲(强度{strength:.0f})"
-    elif strength >= 50:
-        if t == "up":
-            return 0.25, f"上升趋势(强度{strength:.0f})"
-        else:
-            return 0.15, f"中性偏稳(强度{strength:.0f})"
-    elif strength >= 30:
-        if t == "down":
-            return 0.0, f"下降趋势(强度{strength:.0f})"
-        else:
-            return 0.10, f"弱势震荡(强度{strength:.0f})"
+                "allow_pyramiding": False, "label": "防御(收紧)"}
     else:
-        return 0.0, f"趋势极弱(强度{strength:.0f})"
+        return {"cp_threshold": 50, "resonance_min": 3, "hold_days": 3,
+                "allow_pyramiding": False, "label": "震荡(默认)"}
 
 
 def calc_dynamic_exit(entry_price, highest_since_entry, atr, days_held,
