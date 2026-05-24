@@ -30,15 +30,23 @@ os.makedirs(WORKSPACE, exist_ok=True)
 
 # ---- ETF池 ----
 ETFS = {
-    "510300": {"n": "华泰柏瑞沪深300ETF", "idx": "沪深300", "market": "sh"},
-    "510310": {"n": "易方达沪深300ETF",   "idx": "沪深300", "market": "sh"},
-    "510330": {"n": "华夏沪深300ETF",     "idx": "沪深300", "market": "sh"},
-    "159919": {"n": "嘉实沪深300ETF",     "idx": "沪深300", "market": "sz"},
-    "510050": {"n": "华夏上证50ETF",      "idx": "上证50",  "market": "sh"},
+    # === 宽基(10只) — 国家队主战场 ===
+    "510300": {"n": "华泰柏瑞沪深300ETF", "idx": "沪深300",  "market": "sh"},
+    "510050": {"n": "华夏上证50ETF",      "idx": "上证50",   "market": "sh"},
     "510500": {"n": "华泰柏瑞中证500ETF", "idx": "中证500",  "market": "sh"},
     "512100": {"n": "南方中证1000ETF",    "idx": "中证1000", "market": "sh"},
-    "588000": {"n": "华夏科创50ETF",      "idx": "科创50",  "market": "sh"},
-    "159915": {"n": "易方达创业板ETF",    "idx": "创业板",  "market": "sz"},
+    "588000": {"n": "华夏科创50ETF",      "idx": "科创50",   "market": "sh"},
+    "159915": {"n": "易方达创业板ETF",    "idx": "创业板",   "market": "sz"},
+    "563360": {"n": "华泰柏瑞A500ETF",    "idx": "A500",    "market": "sh"},
+    "510210": {"n": "富国上证综指ETF",    "idx": "上证综指", "market": "sh"},
+    "159967": {"n": "华夏创业板成长ETF",  "idx": "创业板成长","market": "sz"},
+    "159995": {"n": "华夏芯片ETF",        "idx": "芯片",     "market": "sz"},
+    # === 防御+主题(5只) — 国家队新方向 ===
+    "510880": {"n": "华泰柏瑞红利ETF",    "idx": "红利",     "market": "sh"},
+    "512660": {"n": "国泰军工ETF",        "idx": "军工",     "market": "sh"},
+    "512010": {"n": "华宝医药ETF",        "idx": "医药",     "market": "sh"},
+    "588200": {"n": "华夏科创芯片ETF",    "idx": "科创芯片", "market": "sh"},
+    "159819": {"n": "易方达人工智能ETF",  "idx": "人工智能", "market": "sz"},
 }
 
 
@@ -762,11 +770,11 @@ def detect_market_trend(code="510300", ma_period=50):
 
 
 def get_dynamic_params(trend_info):
-    """根据趋势返回动态策略参数。
-    牛市: ≥2只≥45%, 持6天, 可叠仓
-    中性+价在MA上: ≥2只≥50%, 持4天   ← v5新增: 修复慢牛盲区
-    中性+价在MA下: ≥3只≥50%, 持3天
-    熊市: ≥3只≥50%, 持3天, 不追
+    """15只ETF动态参数(4212组合网格搜索最优)。
+    上升: ≥2只≥45%, 持10天, 可叠仓
+    中性偏多: ≥2只≥50%, 持7天
+    中性偏空: ≥5只≥50%, 持4天
+    下降: ≥4只≥50%, 持4天, 不追
     """
     t = trend_info["trend"]
     above_ma = trend_info.get("above_ma", True)
@@ -775,14 +783,14 @@ def get_dynamic_params(trend_info):
         return {"cp_threshold": 45, "resonance_min": 2, "hold_days": 10,
                 "allow_pyramiding": True, "label": "上升(宽松)"}
     elif t == "down":
-        return {"cp_threshold": 50, "resonance_min": 3, "hold_days": 3,
+        return {"cp_threshold": 50, "resonance_min": 4, "hold_days": 4,
                 "allow_pyramiding": False, "label": "下降(防御)"}
     else:  # neutral
         if above_ma:
             return {"cp_threshold": 50, "resonance_min": 2, "hold_days": 7,
                     "allow_pyramiding": False, "label": "中性偏多"}
         else:
-            return {"cp_threshold": 50, "resonance_min": 3, "hold_days": 4,
+            return {"cp_threshold": 50, "resonance_min": 5, "hold_days": 4,
                     "allow_pyramiding": False, "label": "中性偏空"}
 
 
