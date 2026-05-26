@@ -289,7 +289,10 @@ def record_position(resonance, params, trend):
                 positions = json.load(f)
         except: pass
 
-    # 标记旧持仓为已退出(同一批)
+    # 标记已有持仓为已退出(同一批)
+    for p in positions:
+        if not p.get("exited"):
+            p["exited"] = True
     positions.append(pos)
     with open(pos_path, 'w', encoding='utf-8') as f:
         json.dump(positions, f, ensure_ascii=False, indent=2)

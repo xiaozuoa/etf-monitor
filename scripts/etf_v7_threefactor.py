@@ -76,19 +76,27 @@ SMTP_HOST  = os.environ.get("ETF_SMTP_HOST",  "smtp.qq.com")
 SMTP_PORT  = int(os.environ.get("ETF_SMTP_PORT", "465"))
 
 ETFS = {
-    "510300": {"n": "华泰柏瑞沪深300ETF", "idx": "沪深300", "p": 5},
-    "510310": {"n": "易方达沪深300ETF",   "idx": "沪深300", "p": 5},
-    "510330": {"n": "华夏沪深300ETF",     "idx": "沪深300", "p": 5},
-    "159919": {"n": "嘉实沪深300ETF",     "idx": "沪深300", "p": 4},
-    "510050": {"n": "华夏上证50ETF",      "idx": "上证50",  "p": 4},
-    "510500": {"n": "华泰柏瑞中证500ETF",  "idx": "中证500",  "p": 3},
-    "512100": {"n": "南方中证1000ETF",    "idx": "中证1000", "p": 3},
+    # === 宽基(10只) — 国家队主战场 ===
+    "510300": {"n": "华泰柏瑞沪深300ETF", "idx": "沪深300",  "market": "sh", "p": 5},
+    "510050": {"n": "华夏上证50ETF",      "idx": "上证50",   "market": "sh", "p": 4},
+    "510500": {"n": "华泰柏瑞中证500ETF", "idx": "中证500",  "market": "sh", "p": 3},
+    "512100": {"n": "南方中证1000ETF",    "idx": "中证1000", "market": "sh", "p": 3},
+    "588000": {"n": "华夏科创50ETF",      "idx": "科创50",   "market": "sh", "p": 3},
+    "159915": {"n": "易方达创业板ETF",    "idx": "创业板",   "market": "sz", "p": 3},
+    "563360": {"n": "华泰柏瑞A500ETF",    "idx": "A500",    "market": "sh", "p": 4},
+    "510210": {"n": "富国上证综指ETF",    "idx": "上证综指", "market": "sh", "p": 3},
+    "159967": {"n": "华夏创业板成长ETF",  "idx": "创业板成长","market": "sz", "p": 3},
+    "159995": {"n": "华夏芯片ETF",        "idx": "芯片",     "market": "sz", "p": 3},
+    # === 防御+主题(5只) — 国家队新方向 ===
+    "510880": {"n": "华泰柏瑞红利ETF",    "idx": "红利",     "market": "sh", "p": 3},
+    "512660": {"n": "国泰军工ETF",        "idx": "军工",     "market": "sh", "p": 3},
+    "512010": {"n": "华宝医药ETF",        "idx": "医药",     "market": "sh", "p": 3},
+    "588200": {"n": "华夏科创芯片ETF",    "idx": "科创芯片", "market": "sh", "p": 3},
+    "159819": {"n": "易方达人工智能ETF",  "idx": "人工智能", "market": "sz", "p": 3},
 }
 
-PUSH2_MKT = {
-    "510300": "1", "510310": "1", "510330": "1", "159919": "0",
-    "510050": "1", "510500": "1", "512100": "1",
-}
+# push2 API 已废弃 (v7起使用akshare), 保留映射以备兼容
+PUSH2_MKT = {c: ("0" if info["market"] == "sz" else "1") for c, info in ETFS.items()}
 
 SPECIAL = {
     "2026-04-30": "五一前", "2026-05-06": "五一后",
@@ -207,12 +215,14 @@ def fetch_fund_shares(code, target_date=None):
         today = datetime.now()
         date_str = today.strftime('%Y%m%d')
 
-    # 判断交易所
-    if code.startswith('159') or code.startswith('16'):
-        # 深交所ETF
+    # 判断交易所 (优先使用ETFS配置的market字段)
+    market = ETFS.get(code, {}).get("market", "")
+    if not market:
+        # 回退: 根据代码前缀判断
+        market = "sz" if (code.startswith('159') or code.startswith('16')) else "sh"
+    if market == "sz":
         return _fetch_szse_shares(code, date_str)
     else:
-        # 上交所ETF (51xxxx / 56xxxx / 58xxxx / 588xxx)
         return _fetch_sse_shares(code, date_str)
 
 def _fetch_sse_shares(code, date_str):
@@ -541,6 +551,8 @@ def gen_html(all_hist, latest_map, idx_300_data, shares_data, target_date):
 
     hs300_codes = [c for c in ETFS if ETFS[c]["idx"] == "沪深300"]
     hs300_alerts = sum(1 for c in hs300_codes if c in primary and primary[c]["cp"] >= 50)
+    total_etf_count = len(ETFS)
+    hs300_count = len(hs300_codes)
     total_high = len(high_codes)
     total_mid = len(mid_codes)
 
@@ -588,7 +600,7 @@ def gen_html(all_hist, latest_map, idx_300_data, shares_data, target_date):
             verdict = f"⚠️ 多ETF放量高确信，但{primary_date}大盘涨{idx_gain:+.2f}%。{threef_tag}。份额端：{'+' if net_purchase_total > net_redempt_total else ''}{net_purchase_total:.1f}亿净申购/{net_redempt_total:.1f}亿净赎回。"
             vcls = "warn"
         else:
-            verdict = f"🔥 {total_high}只ETF高确信·{hs300_alerts}/4沪深300同步。{threef_tag}。份额端：{'+' if net_purchase_total > net_redempt_total else ''}{net_purchase_total:.1f}亿净申购/{net_redempt_total:.1f}亿净赎回。"
+            verdict = f"🔥 {total_high}只ETF高确信·{hs300_alerts}/{hs300_count}沪深300同步。{threef_tag}。份额端：{'+' if net_purchase_total > net_redempt_total else ''}{net_purchase_total:.1f}亿净申购/{net_redempt_total:.1f}亿净赎回。"
             vcls = "warn"
     elif total_high >= 1:
         verdict = f"⚠️ 部分ETF触发高确信（{', '.join(ETFS[c]['n'][:6] for c in high_codes)}等）。{threef_tag}。份额端：{'+' if net_purchase_total > net_redempt_total else ''}{net_purchase_total:.1f}亿净申购/{net_redempt_total:.1f}亿净赎回。"
@@ -795,7 +807,7 @@ body::before{{content:'';position:absolute;inset:0;background-image:radial-gradi
     <div class="tx"><span>中等关注</span>🟡 需跟踪</div>
   </div>
   <div class="stat">
-    <div class="vi" style="color:{'#ef4444' if hs300_alerts>=3 else '#f59e0b' if hs300_alerts>=2 else '#22c55e'}">{hs300_alerts}/4</div>
+    <div class="vi" style="color:{'#ef4444' if hs300_alerts>=3 else '#f59e0b' if hs300_alerts>=2 else '#22c55e'}">{hs300_alerts}/{hs300_count}</div>
     <div class="tx"><span>沪深300</span>一致性</div>
   </div>
   <div class="stat">
@@ -803,7 +815,7 @@ body::before{{content:'';position:absolute;inset:0;background-image:radial-gradi
     <div class="tx"><span>份额日变</span>亿份 · 净申赎</div>
   </div>
   <div class="stat">
-    <div class="vi" style="color:#818cf8">{shares_available_count}/7</div>
+    <div class="vi" style="color:#818cf8">{shares_available_count}/{total_etf_count}</div>
     <div class="tx"><span>份额覆盖</span>三因子完整度</div>
   </div>
 </div>

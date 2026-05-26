@@ -24,16 +24,26 @@ ETF本地数据存储模块 — SQLite数据库
 import sqlite3, json, os, sys
 from datetime import datetime, timedelta
 
-DB_PATH = os.path.expanduser(os.environ.get("ETF_WORKSPACE", "~/.etf-skill/workspace")) + "/etf_history.db"
+DB_PATH = os.path.join(os.path.expanduser(os.environ.get("ETF_WORKSPACE", "~/.etf-skill/workspace")), "etf_history.db")
 
 ETFS = {
-    "510300": {"n": "华泰柏瑞沪深300ETF", "idx": "沪深300"},
-    "510310": {"n": "易方达沪深300ETF",   "idx": "沪深300"},
-    "510330": {"n": "华夏沪深300ETF",     "idx": "沪深300"},
-    "159919": {"n": "嘉实沪深300ETF",     "idx": "沪深300"},
-    "510050": {"n": "华夏上证50ETF",      "idx": "上证50"},
-    "510500": {"n": "华泰柏瑞中证500ETF",  "idx": "中证500"},
-    "512100": {"n": "南方中证1000ETF",    "idx": "中证1000"},
+    # === 宽基(10只) — 国家队主战场 ===
+    "510300": {"n": "华泰柏瑞沪深300ETF", "idx": "沪深300",  "market": "sh"},
+    "510050": {"n": "华夏上证50ETF",      "idx": "上证50",   "market": "sh"},
+    "510500": {"n": "华泰柏瑞中证500ETF", "idx": "中证500",  "market": "sh"},
+    "512100": {"n": "南方中证1000ETF",    "idx": "中证1000", "market": "sh"},
+    "588000": {"n": "华夏科创50ETF",      "idx": "科创50",   "market": "sh"},
+    "159915": {"n": "易方达创业板ETF",    "idx": "创业板",   "market": "sz"},
+    "563360": {"n": "华泰柏瑞A500ETF",    "idx": "A500",    "market": "sh"},
+    "510210": {"n": "富国上证综指ETF",    "idx": "上证综指", "market": "sh"},
+    "159967": {"n": "华夏创业板成长ETF",  "idx": "创业板成长","market": "sz"},
+    "159995": {"n": "华夏芯片ETF",        "idx": "芯片",     "market": "sz"},
+    # === 防御+主题(5只) — 国家队新方向 ===
+    "510880": {"n": "华泰柏瑞红利ETF",    "idx": "红利",     "market": "sh"},
+    "512660": {"n": "国泰军工ETF",        "idx": "军工",     "market": "sh"},
+    "512010": {"n": "华宝医药ETF",        "idx": "医药",     "market": "sh"},
+    "588200": {"n": "华夏科创芯片ETF",    "idx": "科创芯片", "market": "sh"},
+    "159819": {"n": "易方达人工智能ETF",  "idx": "人工智能", "market": "sz"},
 }
 
 CREATE_TABLE_SQL = """

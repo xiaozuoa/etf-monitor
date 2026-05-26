@@ -248,16 +248,14 @@ def check_consecutive_days(mid_count_today, high_count_today):
     consecutive = 1
     boost = 0
 
-    for i in range(1, 6):  # 回溯前5个交易日
-        check_date = (datetime.now() - timedelta(days=i)).strftime("%Y-%m-%d")
-        found = False
-        for entry in history:
-            if entry.get("date") == check_date:
-                if entry.get("mid_count", 0) >= 3:
-                    consecutive += 1
-                    found = True
-                    break
-        if not found:
+    # 按日期排序历史记录(最新在前), 跳过today自身
+    sorted_history = sorted(history, key=lambda x: x.get("date", ""), reverse=True)
+    sorted_history = [h for h in sorted_history if h.get("date") != today]
+
+    for entry in sorted_history[:5]:
+        if entry.get("mid_count", 0) >= 3:
+            consecutive += 1
+        else:
             break
 
     campaign = consecutive >= 2
@@ -469,7 +467,8 @@ def optimize_weights():
                 dir_raw = min(1, excess * 0.15)
             dir_raw = max(0, min(1, dir_raw))
 
-            # 份额因子 (历史回测用固定值)
+            # 份额因子 — 历史回测中份额数据通常不可用, 使用中性基准值
+            # 实际运行时由 full_analysis() 根据真实份额数据动态计算
             share_raw = 0.12
 
             # 后续收益
