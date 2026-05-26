@@ -179,6 +179,75 @@ def fetch_shares_confirmation():
     return shares
 
 
+def _get_latest_share_delta(code, before_date=None):
+    """获取最近可用的份额变化率(用于盘中没有当天份额数据时做代理)。
+    优先从JSON历史读取, 其次从SQLite DB读取。
+    before_date: 只使用该日期之前的数据(回测用), None=不限
+    返回: delta_pct 或 None
+    """
+    # 优先从JSON历史文件读取
+    hist_path = os.path.join(WORKSPACE, "etf_shares_history.json")
+    if os.path.exists(hist_path):
+        try:
+            with open(hist_path, "r", encoding="utf-8") as f:
+                hist = json.load(f)
+            # 按日期降序排列, 找最新有该ETF份额变化的日期
+            target_dates = sorted(hist.keys(), reverse=True)
+            if before_date:
+                target_dates = [d for d in target_dates if d < before_date]
+            for date in target_dates:
+                if isinstance(hist.get(date), dict) and code in hist[date]:
+                    entry = hist[date][code]
+                    delta = entry.get("delta_pct")
+                    if delta is not None:
+                        return delta
+                    # 如果只有份额没有delta, 尝试计算
+                    shares_yi = entry.get("shares_yi")
+                    if shares_yi is not None:
+                        prev = _find_prev_share(hist, code, date)
+                        if prev is not None and prev > 0:
+                            return round((shares_yi - prev) / prev * 100, 3)
+        except:
+            pass
+
+    # 回退到SQLite DB
+    try:
+        import sqlite3
+        db_path = os.path.join(WORKSPACE, "etf_history.db")
+        if os.path.exists(db_path):
+            with sqlite3.connect(db_path) as conn:
+                if before_date:
+                    row = conn.execute(
+                        "SELECT shares_delta_pct FROM etf_daily "
+                        "WHERE code=? AND shares_delta_pct IS NOT NULL AND date < ? "
+                        "ORDER BY date DESC LIMIT 1", (code, before_date)
+                    ).fetchone()
+                else:
+                    row = conn.execute(
+                        "SELECT shares_delta_pct FROM etf_daily "
+                        "WHERE code=? AND shares_delta_pct IS NOT NULL "
+                        "ORDER BY date DESC LIMIT 1", (code,)
+                    ).fetchone()
+                if row:
+                    return row[0]
+    except:
+        pass
+
+    return None
+
+
+def _find_prev_share(hist, code, date):
+    """在历史份额数据中查找指定日期之前的最新份额值"""
+    sorted_dates = sorted(hist.keys())
+    idx = sorted_dates.index(date) if date in sorted_dates else -1
+    if idx <= 0:
+        return None
+    for prev_d in sorted_dates[idx - 1::-1]:
+        if isinstance(hist.get(prev_d), dict) and code in hist[prev_d]:
+            return hist[prev_d][code].get("shares_yi")
+    return None
+
+
 # ================================================================
 # ③ 相对强弱因子 (区分国家队 vs 普涨)
 # ================================================================
@@ -606,8 +675,17 @@ def full_analysis(codes=None, use_realtime=False, use_shares=False, weights=None
 
         # === 份额因子 (原始值 0-1) ===
         share_raw = 0.12  # 默认基准
+        today_delta = None
         if shares and code in shares:
-            delta_pct = shares[code].get("delta_pct", 0)
+            today_delta = shares[code].get("delta_pct", 0)
+        else:
+            # 盘中份额未更新, 用最近历史份额变化作为代理(慢变量, 趋势延续)
+            yesterday_delta = _get_latest_share_delta(code)
+            if yesterday_delta is not None:
+                today_delta = yesterday_delta * 0.7  # 历史数据打7折(时效折扣)
+
+        if today_delta is not None:
+            delta_pct = today_delta
             if delta_pct > 0.5:
                 share_raw = min(1.0, 0.12 + delta_pct * 0.06)  # 正申购→加分
             elif delta_pct < -1:
