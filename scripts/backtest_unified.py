@@ -25,7 +25,7 @@ def compute_cp_unified(v_raw, d_raw, idx_chg=0, code=None, date=None, collector=
     if collector is not None and code is not None and date is not None:
         delta = collector.get_delta(code, date)
         if delta is not None:
-            dp = delta*0.7
+            dp = delta
             if dp>0.5:   share_raw = min(1.0, 0.12+dp*0.06)
             elif dp<-1:   share_raw = max(0.0, 0.12+dp*0.03)
             share_raw = max(0,min(1,share_raw))
