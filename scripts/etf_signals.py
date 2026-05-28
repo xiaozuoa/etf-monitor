@@ -105,7 +105,7 @@ def compute_cp(records, day_i, idx_chg, share_raw=None):
     d_raw = rs / 100
     # 动态权重: 跌市中方向因子翻倍(逆势才是真国家队), 量能降低(跌市放量可能是抛售)
     if idx_chg < 0:
-        w_vol, w_dir = 0.35, 0.35
+        w_vol, w_dir = 0.45, 0.25
     else:
         w_vol, w_dir = W_VOL, W_DIR
 

@@ -110,13 +110,7 @@ class ETFDataStore:
         placeholders = ", ".join(["?" for _ in columns])
         upsert_cols = ", ".join([f"{c}=excluded.{c}" for c in columns if c not in ("date", "code")])
 
-        sql = f"""
-        INSERT INTO etf_daily ({", ".join(columns)})
-        VALUES ({placeholders})
-        ON CONFLICT(date, code) DO UPDATE SET
-            {upsert_cols},
-            updated_at = datetime('now','localtime');
-        """
+        sql = f"INSERT OR REPLACE INTO etf_daily ({', '.join(columns)}, updated_at) VALUES ({placeholders}, datetime('now','localtime'))"
         values = tuple(data.get(c) for c in columns)
         with sqlite3.connect(self.db_path) as conn:
             conn.execute(sql, values)

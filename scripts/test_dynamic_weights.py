@@ -40,9 +40,9 @@ check("1a: compute_cp checks idx_chg < 0 for weight switching",
       "compute_cp should check market direction to switch weights")
 
 # Check 2: Contains the new weight value 0.35 for down market
-check("1b: Down-market uses weight 0.35 (lowered vol, raised dir)",
-      "0.35" in cp_body,
-      "Down market should use 0.35 for both vol and dir weights")
+check("1b: Down-market uses WF-optimal weights 0.45/0.25",
+      "0.45" in cp_body and "0.25" in cp_body,
+      "Down market should use WF-optimal: w_vol=0.45, w_dir=0.25")
 
 # Check 3: Contains W_VOL reference for up-market (keeping original constant)
 check("1c: Up-market still references W_VOL (keeps original 0.50)",
