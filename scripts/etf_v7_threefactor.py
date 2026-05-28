@@ -659,7 +659,7 @@ def gen_html(all_hist, latest_map, idx_300_data, shares_data, target_date):
         # 份额列
         sh_html = ""
         if sd:
-            sh_yi = sd.get("shares_yi", "-")
+            sh_yi = sd.get("shares_yi") or "-"
             d_yi = sd.get("delta_yi")
             d_pct = sd.get("delta_pct")
             if d_yi is not None:
@@ -697,7 +697,7 @@ def gen_html(all_hist, latest_map, idx_300_data, shares_data, target_date):
 </tr>'''
 
     # 信号列表
-    signal_dates = [(d, v) for d, v in date_score.items() if v["high"] + v["mid"] >= 3]
+    signal_dates = [(d, v) for d, v in date_score.items() if v["high"] >= 2 or v["high"] + v["mid"] >= 4]
     signal_dates.sort(key=lambda x: x[0], reverse=True)
     sig_list = ""
     for d, v in signal_dates[:8]:
