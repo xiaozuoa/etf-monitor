@@ -45,7 +45,7 @@ print("\n" + "=" * 60)
 print("Bug #27: v5/v6 import constants from etf_signals")
 print("=" * 60)
 
-for fname in ["etf_backtest_v5.py", "etf_backtest_v6.py"]:
+for fname in ["backup/etf_backtest_v5.py", "backup/etf_backtest_v6.py"]:
     fpath = os.path.join(SCRIPT_DIR, fname)
     with open(fpath, "r", encoding="utf-8") as f:
         src = f.read()

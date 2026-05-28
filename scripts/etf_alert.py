@@ -157,6 +157,32 @@ def send_email(analysis, is_post_market, trend, params, min_pct, consec_info):
         server.sendmail(CFG["email_from"], CFG["email_to"], msg.as_string())
         server.quit()
         print(f"  ✅ 已发送 → {CFG['email_to']}")
+
+        # 记录到实盘追踪
+        import json as _json
+        tracker_path = os.path.join(WORKSPACE, "signal_tracker.json")
+        tracker = []
+        if os.path.exists(tracker_path):
+            try:
+                with open(tracker_path, 'r', encoding='utf-8') as _f:
+                    tracker = _json.load(_f)
+            except: pass
+        today = datetime.now().strftime("%Y-%m-%d")
+        # 去重：今天已有记录就跳过
+        if not any(t.get("date") == today for t in tracker):
+            tracker.append({
+                "date": today,
+                "trend": trend["trend"],
+                "hold_days": params["hold_days"],
+                "exit_date": (datetime.now() + timedelta(days=params["hold_days"])).strftime("%Y-%m-%d"),
+                "etfs": [{"code": a["code"], "name": a["name"][:12],
+                          "entry_price": a["close"], "cp": a["composite_prob"]}
+                         for a in alerts[:5]],
+                "actual_pnl": None
+            })
+            with open(tracker_path, 'w', encoding='utf-8') as _f:
+                _json.dump(tracker, _f, ensure_ascii=False, indent=2)
+
         return True
     except Exception as e:
         print(f"  ❌ 发送失败: {e}")
