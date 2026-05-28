@@ -7,7 +7,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from etf_engine import ETFS
 from etf_signals import fetch, detect_trend, calc_rs, COMMISSION, SLIPPAGE, INITIAL, W_VOL, W_DIR, W_SHARE, DEFAULT_SHARE_RAW
 
-def get_cfg(t):
+def get_cfg(t,                                                     a):
     """2状态趋势配置 — 与生产 etf_engine.get_dynamic_params 一致 (2026-05-28简化)"""
     if t == "up":
         return {"cp_threshold": 50, "resonance_min": 2, "hold_days": 7, "allow_pyramiding": True}
@@ -35,7 +35,8 @@ def get_atr_stop(code, recs, day_i, entry_price):
 
 # ---- 信号计算器 ----
 class CPSystem:
-    def __init__(self, data_dict):
+    def __init__(self, mode, data_dict):
+        self.mode = mode  # 'baseline' | 'p0' | 'p1' | 'p0p1'
         self.data_dict = data_dict
         self._share_cache = {}
 
@@ -96,7 +97,7 @@ def run_backtest(data_dict, cp_sys, variant_name):
         if base_cooldown>0: base_cooldown-=1
         idx_c=ref[day_i]["c"]; idx_chg=(idx_c-ref[day_i-1]["c"])/ref[day_i-1]["c"]*100
         trend=detect_trend(ref,day_i); t=trend["trend"]; a=trend["above_ma"]; s=trend["strength"]
-        cfg=get_cfg(t)
+        cfg=get_cfg(t,a)
 
         if s>=70: min_pct=0.40
         elif s>=50 and t=="up": min_pct=0.25
@@ -121,7 +122,7 @@ def run_backtest(data_dict, cp_sys, variant_name):
                         cost=sh*bp*(1+COMMISSION)
                         if cost<=cash:
                             cash-=cost
-                            holding["510300_base"]={"shares":sh,"cost":cost,"entry_price":bp,"entry_date":ref[ni]["date"],"entry_i":ni,"highest":bp,"is_base":True}
+                            holding["base"]={"shares":sh,"cost":cost,"entry_price":bp,"entry_date":ref[ni]["date"],"entry_i":ni,"highest":bp,"is_base":True}
 
         # 卖出
         to_sell=[]
@@ -262,7 +263,7 @@ def main():
 
         period_res={}
         for vmode,vlabel in variants:
-            cp_sys=CPSystem(data_dict)
+            cp_sys=CPSystem(vmode, data_dict)
             eq,nt,wr,trades=run_backtest(precs, cp_sys, vmode)
             m=calc_metrics(eq,nt,wr,vlabel)
             period_res[vlabel]=m
