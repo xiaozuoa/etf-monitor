@@ -468,7 +468,7 @@ def analyze_all(data, idx_d, shares_map, days=35, code=None):
         d = data[i]
         v = d["v"] / 10000
         pv = [data[j]["v"] / 10000 for j in range(i - 20, i)]
-        ma = sum(pv) / 20
+        ma = sum(pv) / len(pv) if pv else 1
         if ma == 0: continue
         vr = v / ma
         pc = data[i - 1]["c"]

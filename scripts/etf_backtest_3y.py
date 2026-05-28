@@ -68,7 +68,7 @@ def backtest(data_dict, use_resonance=True, cp_thresh=50, res_min=3, hold_days=3
         date = idx_records[day_i]["date"]
         idx_c = idx_records[day_i]["c"]
         idx_prev = idx_records[day_i-1]["c"]
-        idx_chg = (idx_c - idx_prev) / idx_prev * 100
+        idx_chg = (idx_c - idx_prev) / idx_prev * 100 if idx_prev > 0 else 0
 
         # === 卖出 ===
         to_sell = []
@@ -99,7 +99,7 @@ def backtest(data_dict, use_resonance=True, cp_thresh=50, res_min=3, hold_days=3
             prev = records[day_i-1]
             if prev is None:
                 continue
-            chg = (c - prev["c"]) / prev["c"] * 100
+            chg = (c - prev["c"]) / prev["c"] * 100 if prev["c"] > 0 else 0
             vols = [records[j]["v"] for j in range(max(0, day_i-20), day_i)
                     if records[j] is not None]
             if len(vols) < 10:
@@ -185,7 +185,9 @@ def buy_hold(data_dict, code="510300"):
     if len(records) < 25:
         return [INITIAL]
     start_i, end_i = 20, len(records) - 6
-    shares = int(INITIAL / records[start_i]["c"] / 100) * 100
+    shares = int(INITIAL / records[start_i]["c"] / 100) * 100 if records[start_i]["c"] > 0 else 0
+    if shares == 0:
+        return [INITIAL]
     return [shares * records[i]["c"] for i in range(start_i, end_i + 1)]
 
 
@@ -197,7 +199,9 @@ def equal_weight(data_dict):
         if len(records) < 25:
             continue
         start_i, end_i = 20, len(records) - 6
-        shares = int((INITIAL / len(ETFS)) / records[start_i]["c"] / 100) * 100
+        shares = int((INITIAL / len(ETFS)) / records[start_i]["c"] / 100) * 100 if records[start_i]["c"] > 0 else 0
+        if shares == 0:
+            continue
         equities.append([shares * records[i]["c"] for i in range(start_i, end_i + 1)])
     if not equities:
         return [INITIAL]

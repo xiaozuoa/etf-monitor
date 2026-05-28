@@ -70,7 +70,7 @@ class ShareSimulator:
 
         # 5日趋势
         if date_idx>=5:
-            chg5 = (r["c"]-recs[date_idx-5]["c"])/recs[date_idx-5]["c"]*100
+            chg5 = (r["c"]-recs[date_idx-5]["c"])/recs[date_idx-5]["c"]*100 if recs[date_idx-5]["c"]>0 else 0
         else:
             chg5 = 0
 
