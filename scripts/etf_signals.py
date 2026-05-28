@@ -57,7 +57,7 @@ def detect_trend(ref, day_i, ma_period=50):
         t = "down"
     else:
         t = "neutral"
-    s = min(100, 50 + slope * 15) if t != "neutral" else 50
+    s = max(0, min(100, 50 + abs(slope) * 15)) if t != "neutral" else 50
     return {"trend": t, "slope": round(slope, 2), "strength": round(s, 1), "above_ma": above}
 
 
@@ -84,7 +84,14 @@ def calc_rs(etf_chg, idx_chg, vol_ratio):
 
 
 def compute_cp(records, day_i, idx_chg, share_raw=None):
-    """综合概率 (P0统一版: 量能50% + 方向20% + 份额30%)"""
+    """综合概率 (P0统一版: 量能50% + 方向20% + 份额30%)
+
+    share_raw: 份额因子原始值 0-1. None=使用默认值0.12.
+      生产环境盘中份额数据通常不可用(盘后19:00才更新), 用历史代理打7折;
+      回测环境若无真实历史份额数据, share_raw恒为0.12, 份额因子贡献恒定3.6分.
+      这意味着回测的份额因子不提供选时能力, 实际生产中的份额动态贡献(0-30分)未在回测中验证.
+      要弥合这个差距需回填真实历史份额数据(akshare SSE/SZSE)到回测中.
+    """
     if share_raw is None:
         share_raw = DEFAULT_SHARE_RAW
     r = records[day_i]

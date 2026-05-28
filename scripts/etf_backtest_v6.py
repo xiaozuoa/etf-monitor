@@ -9,9 +9,10 @@ if hasattr(sys.stdout, 'buffer') and sys.stdout.encoding != 'utf-8':
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, SCRIPT_DIR)
-from etf_engine import (ETFS, calc_relative_strength, calc_atr,
-                         detect_market_trend, get_dynamic_params,
+from etf_engine import (ETFS, calc_atr,
+                         get_dynamic_params,
                          get_min_position)
+from etf_signals import compute_cp, detect_trend, calc_rs
 
 SSL_CTX = ssl.create_default_context()
 SSL_CTX.check_hostname = False; SSL_CTX.verify_mode = ssl.CERT_NONE
@@ -36,42 +37,6 @@ def fetch(code, limit=800):
     except: return []
 
 
-def calc_rs(etf_chg, idx_chg, vol_ratio):
-    excess = etf_chg - idx_chg; score, is_c = 0, False
-    if idx_chg < -0.5 and etf_chg > idx_chg + 0.3: score += 40; is_c = True
-    if idx_chg < -1.5 and is_c: score += min(20, abs(idx_chg)*3)
-    if idx_chg < -0.5 and vol_ratio > 1.3 and etf_chg > idx_chg+0.5: score += 25
-    if excess > 0.3: score += min(20, excess*6)
-    if idx_chg > 1.5 and 0 < excess < 0.3: score -= 15
-    if idx_chg > 2.0 and excess < 0.5: score -= 10
-    if etf_chg > 1.5 and vol_ratio < 0.8: score -= 20
-    return max(0, min(100, score)), is_c
-
-
-def compute_cp(records, day_i, idx_chg):
-    r = records[day_i]; c, v = r["c"], r["v"]
-    chg = (c-records[day_i-1]["c"])/records[day_i-1]["c"]*100
-    vols = [records[j]["v"] for j in range(max(0,day_i-19),day_i+1)]
-    ma20 = sum(vols)/len(vols); vr = v/ma20 if ma20>0 else 1
-    v_raw = min(1,max(0,(vr-0.7)/1.3)) if vr>=0.7 else 0
-    rs, is_c = calc_rs(chg, idx_chg, vr); d_raw = rs/100
-    return (v_raw*0.55+d_raw*0.40+0.12*0.05)*100, chg, vr, is_c, c
-
-
-def detect_trend_at(ref, day_i):
-    need = 60
-    if day_i < need:
-        return {"trend":"neutral","slope":0,"strength":50,"above_ma":True}
-    closes = [d["c"] for d in ref[day_i-need+1:day_i+1]]
-    ma_now = sum(closes[-50:])/50
-    ma_10d_ago = sum(closes[:50])/50
-    slope = (ma_now-ma_10d_ago)/ma_10d_ago*100 if ma_10d_ago>0 else 0
-    above = ref[day_i]["c"] > ma_now
-    if slope > 1.0 and above: trend = "up"
-    elif slope < -1.0 and not above: trend = "down"
-    else: trend = "neutral"
-    strength = min(100, 50+slope*15) if trend!="neutral" else 50
-    return {"trend":trend,"slope":round(slope,2),"strength":round(strength,1),"above_ma":above}
 
 
 def get_signal_position_weight(cp, consec_days):
@@ -110,7 +75,7 @@ def _backtest(data_dict, use_better_base=False, use_weighted_pos=False):
         idx_c = ref[day_i]["c"]
         idx_chg = (idx_c-ref[day_i-1]["c"])/ref[day_i-1]["c"]*100
 
-        trend = detect_trend_at(ref, day_i)
+        trend = detect_trend(ref, day_i)
         dynamic = get_dynamic_params(trend)
         if use_better_base:
             min_pct, _ = get_min_position(trend)
@@ -119,8 +84,9 @@ def _backtest(data_dict, use_better_base=False, use_weighted_pos=False):
 
         # === v6 底仓风控 ===
         total_equity = cash
-        for _, pos in holding.items():
-            records = data_dict.get("510300", [])
+        for code, pos in holding.items():
+            lookup_code = code.replace("_base", "")
+            records = data_dict.get(lookup_code, [])
             if day_i < len(records) and records[day_i]:
                 total_equity += pos["shares"] * records[day_i]["c"]
             else:

@@ -595,11 +595,9 @@ def full_analysis(codes=None, use_realtime=False, use_shares=False, weights=None
         # === 综合概率 ===
         cp = (vol_raw * weights["vol"] + dir_raw * weights["dir"] + share_raw * weights["share"]) * 100
 
-        # === 宏观调整 ===
-        cp += macro["context_score"] * 0.3  # 宏观最多影响±15%
         cp = max(0, min(100, cp))
 
-        signal = "HIGH" if cp >= 60 else ("MID" if cp >= 50 else "LOW")
+        signal = "HIGH" if cp >= 70 else ("MID" if cp >= 50 else "LOW")
 
         results.append({
             "code": code, "name": info["n"], "idx_name": info["idx"],
@@ -617,7 +615,7 @@ def full_analysis(codes=None, use_realtime=False, use_shares=False, weights=None
 
     # ---- 共振检测 ----
     mid_or_high = [r for r in results if r["composite_prob"] >= 50]
-    high_only   = [r for r in results if r["composite_prob"] >= 60]
+    high_only   = [r for r in results if r["composite_prob"] >= 70]
 
     # 连续日确认
     consecutive, campaign, conf_boost = check_consecutive_days(
