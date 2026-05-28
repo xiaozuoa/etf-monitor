@@ -1,37 +1,11 @@
 #!/usr/bin/env python3
 """P0 vs P1 vs P0+P1 四变体对比 — 一次跑完, 真实数字"""
 
-import os, sys, io, json, urllib.request, ssl, math
+import os, sys, io, math
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from etf_engine import ETFS, calc_relative_strength
-
-SSL_CTX = ssl.create_default_context()
-SSL_CTX.check_hostname = False; SSL_CTX.verify_mode = ssl.CERT_NONE
-COMMISSION=0.00025; SLIPPAGE=0.0005; INITIAL=100000
-
-def fetch(code, limit=800):
-    pfx="sh" if code.startswith(("51","56","0")) else "sz"
-    if code.startswith(("sh","sz")): pfx2,nc=code[:2],code[2:]
-    else: pfx2,nc=pfx,code
-    u=f"http://web.ifzq.gtimg.cn/appstock/app/fqkline/get?param={pfx2}{nc},day,,,{limit},qfq"
-    req=urllib.request.Request(u,headers={"User-Agent":"Mozilla/5.0"})
-    with urllib.request.urlopen(req,timeout=15,context=SSL_CTX) as r:
-        d=json.loads(r.read().decode("utf-8"))
-    k=d.get("data",{}).get(f"{pfx2}{nc}",{}).get("qfqday",[]) or d.get("data",{}).get(f"{pfx2}{nc}",{}).get("day",[])
-    return [{"date":r[0],"o":float(r[1]),"c":float(r[2]),"h":float(r[3]),"l":float(r[4]),"v":float(r[5])}
-            for r in k if len(r)>=6 and r[0]]
-
-def detect_trend(ref,day_i):
-    if day_i<50: return {"trend":"neutral","slope":0,"strength":50,"above_ma":True}
-    closes=[d["c"] for d in ref[day_i-49:day_i+1]]
-    ma_now=sum(closes)/len(closes); ma_10d=sum(closes[:10])/10
-    slope=(ma_now-ma_10d)/ma_10d*100 if ma_10d>0 else 0
-    above=ref[day_i]["c"]>ma_now
-    if slope>1.0 and above: t="up"; s=min(100,50+slope*15)
-    elif slope<-1.0 and not above: t="down"; s=min(100,50+abs(slope)*15)
-    else: t="neutral"; s=50
-    return {"trend":t,"slope":round(slope,2),"strength":round(s,1),"above_ma":above}
+from etf_signals import fetch, detect_trend, COMMISSION, SLIPPAGE, INITIAL, W_VOL, W_DIR, W_SHARE, DEFAULT_SHARE_RAW
 
 def get_cfg(t,a):
     if t=="up": return {"cp_threshold":45,"resonance_min":2,"hold_days":10,"allow_pyramiding":True}
@@ -74,19 +48,14 @@ class CPSystem:
         v_raw=min(1,max(0,(vr-0.7)/1.3)) if vr>=0.7 else 0
         rs,is_c=calc_relative_strength(chg,idx_chg,vr); d_raw=rs/100
 
-        if self.mode in ('baseline','p1'):
-            # 旧权重 55/40/5
-            cp = (v_raw*0.55 + d_raw*0.40 + 0.12*0.05)*100
-        else:
-            # P0 权重 50/20/30 + 份额代理
-            share_raw=0.12
-            delta=self._get_share_delta(code, ref[day_i]["date"])
-            if delta is not None:
-                dp=delta*0.7
-                if dp>0.5: share_raw=min(1.0,0.12+dp*0.06)
-                elif dp<-1: share_raw=max(0.0,0.12+dp*0.03)
-                share_raw=max(0,min(1,share_raw))
-            cp = (v_raw*0.50 + d_raw*0.20 + share_raw*0.30)*100
+        share_raw = DEFAULT_SHARE_RAW
+        delta = self._get_share_delta(code, ref[day_i]["date"])
+        if delta is not None:
+            dp = delta*0.7
+            if dp>0.5: share_raw = min(1.0, 0.12+dp*0.06)
+            elif dp<-1: share_raw = max(0.0, 0.12+dp*0.03)
+            share_raw = max(0, min(1, share_raw))
+        cp = (v_raw*W_VOL + d_raw*W_DIR + share_raw*W_SHARE)*100
 
         return cp, chg, vr, is_c, c
 
@@ -116,14 +85,14 @@ class CPSystem:
 def run_backtest(data_dict, cp_sys, variant_name):
     """variant: 'baseline'|'p0'|'p1'|'p0p1'"""
     ref=data_dict.get("510300",[])
-    if len(ref)<55: return [INITIAL],0,0,[]
+    if len(ref)<65: return [INITIAL],0,0,[]
 
     cash=INITIAL; holding={}; equity=[INITIAL]; trades=[]; signal_log=[]
     base_cooldown=0
 
     use_p1 = variant_name in ('p1','p0p1')
 
-    for day_i in range(50,len(ref)-12):
+    for day_i in range(60,len(ref)-12):
         date=ref[day_i]["date"]
         if base_cooldown>0: base_cooldown-=1
         idx_c=ref[day_i]["c"]; idx_chg=(idx_c-ref[day_i-1]["c"])/ref[day_i-1]["c"]*100
@@ -242,8 +211,8 @@ def run_backtest(data_dict, cp_sys, variant_name):
 
 def buy_hold(data_dict):
     recs=data_dict.get("510300",[])
-    if len(recs)<55: return [INITIAL]
-    si,ei=50,len(recs)-13; sh=int(INITIAL/recs[si]["c"]/100)*100
+    if len(recs)<65: return [INITIAL]
+    si,ei=60,len(recs)-13; sh=int(INITIAL/recs[si]["c"]/100)*100
     return [sh*recs[i]["c"] for i in range(si,ei+1)]
 
 def calc_metrics(equity, n_trades, wr, name):
@@ -274,15 +243,15 @@ def main():
 
     periods=[("3年","2023-05","2026-05"),("2年","2024-05","2026-05"),("1年","2025-05","2026-05")]
 
-    variants=[("baseline","旧回测(不可信)"),("p0","P0:统一权重"),("p1","P1:ATR+信号退出"),("p0p1","P0+P1:全修")]
+    variants=[("p0","P0:统一权重"),("p1","P1:ATR+信号退出"),("p0p1","P0+P1:全修")]
 
     all_res={}
 
     for pname,spfx,epfx in periods:
         mask=[i for i,d in enumerate(rd) if d>=spfx and d<=epfx]
-        si,ei=max(50,mask[0]),min(len(ref)-13,mask[-1])
+        si,ei=max(60,mask[0]),min(len(ref)-13,mask[-1])
         precs={c:[d for d in data_dict[c][si:ei+1]] for c in data_dict if si<len(data_dict[c]) and ei<len(data_dict[c])}
-        if "510300" not in precs or len(precs["510300"])<55: continue
+        if "510300" not in precs or len(precs["510300"])<65: continue
 
         print(f"\n{'─'*100}")
         print(f"📅 {pname} ({precs['510300'][0]['date']} ~ {precs['510300'][-1]['date']})")
@@ -311,13 +280,11 @@ def main():
     for pname in ["3年","2年","1年"]:
         if pname not in all_res: continue
         res=all_res[pname]
-        base=res["旧回测(不可信)"]
-        print(f"\n  [{pname}] 基准: {base['ret']:+.1f}% 夏普{base['sh']:.2f}")
+        print(f"\n  [{pname}]")
         for vlabel in ["P0:统一权重","P1:ATR+信号退出","P0+P1:全修"]:
             if vlabel not in res: continue
             m=res[vlabel]
-            d_ret=m['ret']-base['ret']; d_sh=m['sh']-base['sh']; d_dd=m['dd']-base['dd']
-            print(f"    {vlabel:<20} 收益{d_ret:+.1f}%  回撤{d_dd:+.1f}%  夏普{d_sh:+.2f}  交易{m['n']}({m['n']-base['n']:+d})")
+            print(f"    {vlabel:<20} 收益{m['ret']:+.1f}%  回撤{m['dd']:+.1f}%  夏普{m['sh']:.2f}  交易{m['n']}")
 
     # 结论
     print(f"\n{'='*100}")
@@ -325,7 +292,7 @@ def main():
     print(f"{'='*100}")
     best_variant = None
     best_avg = -999
-    for vlabel in ["旧回测(不可信)","P0:统一权重","P1:ATR+信号退出","P0+P1:全修"]:
+    for vlabel in ["P0:统一权重","P1:ATR+信号退出","P0+P1:全修"]:
         scores=[]
         for pname in ["3年","2年","1年"]:
             if pname in all_res and vlabel in all_res[pname]:

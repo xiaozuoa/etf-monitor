@@ -4,7 +4,7 @@ v4 回测 — 对比 v3 vs 趋势自适应 vs 动态退出 vs 核心卫星
 数据: 腾讯API 800天 (~2023-02 ~ 2026-05)
 """
 
-import os, sys, io, json, urllib.request, ssl
+import os, sys, io
 from collections import defaultdict
 
 if hasattr(sys.stdout, 'buffer') and sys.stdout.encoding != 'utf-8':
@@ -12,65 +12,9 @@ if hasattr(sys.stdout, 'buffer') and sys.stdout.encoding != 'utf-8':
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, SCRIPT_DIR)
-from etf_engine import (ETFS, calc_relative_strength, calc_atr,
-                         detect_market_trend, get_dynamic_params,
-                         calc_dynamic_exit)
-
-SSL_CTX = ssl.create_default_context()
-SSL_CTX.check_hostname = False
-SSL_CTX.verify_mode = ssl.CERT_NONE
-
-COMMISSION = 0.00025
-SLIPPAGE   = 0.0005
-INITIAL    = 100000
-
-
-def fetch(code, limit=800):
-    pfx = "sh" if code.startswith(("51", "56", "0")) else "sz"
-    if code.startswith("sh") or code.startswith("sz"):
-        pfx, numcode = code[:2], code[2:]
-    else:
-        numcode = code
-    url = f"http://web.ifzq.gtimg.cn/appstock/app/fqkline/get?param={pfx}{numcode},day,,,{limit},qfq"
-    try:
-        req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
-        with urllib.request.urlopen(req, timeout=20, context=SSL_CTX) as r:
-            d = json.loads(r.read().decode("utf-8"))
-        k = d.get("data", {}).get(f"{pfx}{numcode}", {}).get("qfqday", []) or \
-            d.get("data", {}).get(f"{pfx}{numcode}", {}).get("day", [])
-        return [{"date": r[0], "o": float(r[1]), "c": float(r[2]),
-                 "h": float(r[3]), "l": float(r[4]), "v": float(r[5])}
-                for r in k if len(r) >= 6 and r[0]]
-    except:
-        return []
-
-
-def calc_rs(etf_chg, idx_chg, vol_ratio):
-    excess = etf_chg - idx_chg
-    score, is_c = 0, False
-    if idx_chg < -0.5 and etf_chg > idx_chg + 0.3:
-        score += 40; is_c = True
-        if idx_chg < -1.5: score += min(20, abs(idx_chg) * 3)
-    if idx_chg < -0.5 and vol_ratio > 1.3 and etf_chg > idx_chg + 0.5: score += 25
-    if excess > 0.3: score += min(20, excess * 6)
-    if idx_chg > 1.5 and 0 < excess < 0.3: score -= 15
-    if idx_chg > 2.0 and excess < 0.5: score -= 10
-    if etf_chg > 1.5 and vol_ratio < 0.8: score -= 20
-    return max(0, min(100, score)), is_c
-
-
-def compute_cp(records, day_i, idx_chg):
-    """计算单日单ETF综合概率"""
-    r = records[day_i]
-    c, v = r["c"], r["v"]
-    chg = (c - records[day_i-1]["c"]) / records[day_i-1]["c"] * 100
-    vols = [records[j]["v"] for j in range(max(0, day_i-19), day_i+1)]
-    ma20 = sum(vols) / len(vols)
-    vr = v / ma20 if ma20 > 0 else 1
-    v_raw = min(1, max(0, (vr - 0.7) / 1.3)) if vr >= 0.7 else 0
-    rs, is_c = calc_rs(chg, idx_chg, vr)
-    d_raw = rs / 100
-    return (v_raw * 0.55 + d_raw * 0.40 + 0.12 * 0.05) * 100, chg, vr, is_c, c
+from etf_engine import (ETFS, calc_atr,
+                         get_dynamic_params, calc_dynamic_exit)
+from etf_signals import fetch, detect_trend, calc_rs, compute_cp, COMMISSION, SLIPPAGE, INITIAL
 
 
 # ================================================================
@@ -107,7 +51,7 @@ def backtest_v4c_full(data_dict):
 def _backtest_core(data_dict, use_dynamic=False, use_trailing=False, hold_days=3):
     """统一回测核心"""
     ref_records = data_dict.get("510300", [])
-    if len(ref_records) < 25:
+    if len(ref_records) < 65:
         return [], [INITIAL]
 
     cash = INITIAL
@@ -115,25 +59,20 @@ def _backtest_core(data_dict, use_dynamic=False, use_trailing=False, hold_days=3
     equity = [INITIAL]
     trades = []
 
-    for day_i in range(20, len(ref_records) - 10):
+    for day_i in range(60, len(ref_records) - 10):
         date = ref_records[day_i]["date"]
         idx_c = ref_records[day_i]["c"]
         idx_chg = (idx_c - ref_records[day_i-1]["c"]) / ref_records[day_i-1]["c"] * 100
 
         # === 趋势检测 (每20天更新) ===
-        if use_dynamic and (day_i % 20 == 0 or day_i == 20):
-            # 用截至当前日的数据估算趋势
+        if use_dynamic and (day_i % 20 == 0 or day_i == 60):
             trend_slice = ref_records[:day_i+1]
-            if len(trend_slice) >= 50:
-                closes = [d["c"] for d in trend_slice[-50:]]
-                ma_now = sum(closes) / len(closes)
-                ma_10d_ago = sum(closes[:10]) / 10
-                slope = (ma_now - ma_10d_ago) / ma_10d_ago * 100 if ma_10d_ago > 0 else 0
-                above_ma = ref_records[day_i]["c"] > ma_now
-                if slope > 1.0 and above_ma:
+            if len(trend_slice) >= 60:
+                trend_info = detect_trend(ref_records, day_i)
+                if trend_info["trend"] == "up":
                     dynamic = {"cp_threshold": 45, "resonance_min": 2,
                                "hold_days": 6, "allow_pyramiding": True}
-                elif slope < -1.0 and not above_ma:
+                elif trend_info["trend"] == "down":
                     dynamic = {"cp_threshold": 50, "resonance_min": 3,
                                "hold_days": 3, "allow_pyramiding": False}
                 else:
@@ -298,9 +237,9 @@ def _backtest_core(data_dict, use_dynamic=False, use_trailing=False, hold_days=3
 
 def buy_hold(data_dict, code="510300"):
     records = data_dict.get(code, [])
-    if len(records) < 25:
+    if len(records) < 65:
         return [INITIAL]
-    si, ei = 20, len(records) - 11
+    si, ei = 60, len(records) - 11
     shares = int(INITIAL / records[si]["c"] / 100) * 100
     return [shares * records[i]["c"] for i in range(si, ei + 1)]
 
@@ -309,9 +248,9 @@ def equal_weight(data_dict):
     equities = []
     for code in ETFS:
         records = data_dict.get(code, [])
-        if len(records) < 25:
+        if len(records) < 65:
             continue
-        si, ei = 20, len(records) - 11
+        si, ei = 60, len(records) - 11
         shares = int((INITIAL / len(ETFS)) / records[si]["c"] / 100) * 100
         equities.append([shares * records[i]["c"] for i in range(si, ei + 1)])
     if not equities:
@@ -450,8 +389,8 @@ def main():
     for year in [2023, 2024, 2025, 2026]:
         ys = str(year)
         mask = [i for i, d in enumerate(ref_dates) if d.startswith(ys)]
-        if len(mask) < 25: continue
-        si, ei = max(20, mask[0]), min(len(ref)-11, mask[-1])
+        if len(mask) < 65: continue
+        si, ei = max(60, mask[0]), min(len(ref)-11, mask[-1])
         if ei - si < 15: continue
 
         yd = {}

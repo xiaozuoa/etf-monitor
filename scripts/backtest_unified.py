@@ -1,37 +1,11 @@
 #!/usr/bin/env python3
 """P0统一回测: 回测CP=生产CP, 连续仓位, 份额代理 — 地基打平后的真实数字"""
 
-import os, sys, io, json, urllib.request, ssl, math
+import os, sys, io, math
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from etf_engine import ETFS, calc_relative_strength, _get_latest_share_delta
-
-SSL_CTX = ssl.create_default_context()
-SSL_CTX.check_hostname = False; SSL_CTX.verify_mode = ssl.CERT_NONE
-COMMISSION=0.00025; SLIPPAGE=0.0005; INITIAL=100000
-
-def fetch(code, limit=800):
-    pfx="sh" if code.startswith(("51","56","0")) else "sz"
-    if code.startswith(("sh","sz")): pfx2,nc=code[:2],code[2:]
-    else: pfx2,nc=pfx,code
-    u=f"http://web.ifzq.gtimg.cn/appstock/app/fqkline/get?param={pfx2}{nc},day,,,{limit},qfq"
-    req=urllib.request.Request(u,headers={"User-Agent":"Mozilla/5.0"})
-    with urllib.request.urlopen(req,timeout=15,context=SSL_CTX) as r:
-        d=json.loads(r.read().decode("utf-8"))
-    k=d.get("data",{}).get(f"{pfx2}{nc}",{}).get("qfqday",[]) or d.get("data",{}).get(f"{pfx2}{nc}",{}).get("day",[])
-    return [{"date":r[0],"o":float(r[1]),"c":float(r[2]),"h":float(r[3]),"l":float(r[4]),"v":float(r[5])}
-            for r in k if len(r)>=6 and r[0]]
-
-def detect_trend(ref,day_i):
-    if day_i<50: return {"trend":"neutral","slope":0,"strength":50,"above_ma":True}
-    closes=[d["c"] for d in ref[day_i-49:day_i+1]]
-    ma_now=sum(closes)/len(closes); ma_10d=sum(closes[:10])/10
-    slope=(ma_now-ma_10d)/ma_10d*100 if ma_10d>0 else 0
-    above=ref[day_i]["c"]>ma_now
-    if slope>1.0 and above: t="up"; s=min(100,50+slope*15)
-    elif slope<-1.0 and not above: t="down"; s=min(100,50+abs(slope)*15)
-    else: t="neutral"; s=50
-    return {"trend":t,"slope":round(slope,2),"strength":round(s,1),"above_ma":above}
+from etf_engine import ETFS, calc_relative_strength
+from etf_signals import fetch, detect_trend, COMMISSION, SLIPPAGE, INITIAL
 
 def get_cfg(t,a):
     if t=="up": return {"cp_threshold":45,"resonance_min":2,"hold_days":10,"allow_pyramiding":True}
@@ -41,22 +15,21 @@ def get_cfg(t,a):
         else: return {"cp_threshold":50,"resonance_min":5,"hold_days":4,"allow_pyramiding":False}
 
 # ==========================================
-# CP 计算模式
+# CP 计算模式 (统一版)
 # ==========================================
-def compute_cp_old(v_raw, d_raw):
-    """回测旧版: 权重 55/40/5, share=0.12"""
-    return (v_raw*0.55 + d_raw*0.40 + 0.12*0.05)*100
+from etf_signals import W_VOL, W_DIR, W_SHARE, DEFAULT_SHARE_RAW
 
-def compute_cp_production(v_raw, d_raw, code, date, collector):
-    """生产版: 权重 50/20/30, 份额用历史代理"""
-    share_raw = 0.12
-    delta = collector.get_delta(code, date)
-    if delta is not None:
-        dp = delta*0.7  # 7折时效折扣
-        if dp>0.5:   share_raw = min(1.0, 0.12+dp*0.06)
-        elif dp<-1:   share_raw = max(0.0, 0.12+dp*0.03)
-        share_raw = max(0,min(1,share_raw))
-    return (v_raw*0.50 + d_raw*0.20 + share_raw*0.30)*100
+def compute_cp_unified(v_raw, d_raw, code=None, date=None, collector=None):
+    """统一CP: 权重 50/20/30, 可选份额代理"""
+    share_raw = DEFAULT_SHARE_RAW
+    if collector is not None and code is not None and date is not None:
+        delta = collector.get_delta(code, date)
+        if delta is not None:
+            dp = delta*0.7
+            if dp>0.5:   share_raw = min(1.0, 0.12+dp*0.06)
+            elif dp<-1:   share_raw = max(0.0, 0.12+dp*0.03)
+            share_raw = max(0,min(1,share_raw))
+    return (v_raw*W_VOL + d_raw*W_DIR + share_raw*W_SHARE)*100
 
 # ==========================================
 # 份额数据模拟器 (基于K线模式推断资金流向)
@@ -124,16 +97,15 @@ class ShareSimulator:
 # ==========================================
 def run_backtest(data_dict, cp_mode, sizing_mode, collector=None):
     """
-    cp_mode: 'old' = 回测旧版 55/40/5, 'production' = 生产版 50/20/30
     sizing_mode: 'equal' = 等额分配, 'weighted' = CP加权分配
     """
     ref=data_dict.get("510300",[])
-    if len(ref)<55: return [INITIAL],0,[]
+    if len(ref)<65: return [INITIAL],0,[]
 
     cash=INITIAL; holding={}; equity=[INITIAL]; trades=[]
     base_cooldown=0; signal_log=[]
 
-    for day_i in range(50,len(ref)-12):
+    for day_i in range(60,len(ref)-12):
         date=ref[day_i]["date"]
         if base_cooldown>0: base_cooldown-=1
         idx_c=ref[day_i]["c"]; idx_chg=(idx_c-ref[day_i-1]["c"])/ref[day_i-1]["c"]*100
@@ -190,10 +162,7 @@ def run_backtest(data_dict, cp_mode, sizing_mode, collector=None):
             v_raw=min(1,max(0,(vr-0.7)/1.3)) if vr>=0.7 else 0
             rs,is_c=calc_relative_strength(chg,idx_chg,vr); d_raw=rs/100
 
-            if cp_mode=='old':
-                cp = compute_cp_old(v_raw, d_raw)
-            else:
-                cp = compute_cp_production(v_raw, d_raw, code, date, collector or ShareSimulator(data_dict))
+            cp = compute_cp_unified(v_raw, d_raw, code, date, collector or ShareSimulator(data_dict))
 
             if cp>=cfg["cp_threshold"]:
                 signals.append({"code":code,"cp":cp,"is_counter":is_c})
@@ -264,8 +233,8 @@ def run_backtest(data_dict, cp_mode, sizing_mode, collector=None):
 
 def buy_hold(data_dict):
     recs=data_dict.get("510300",[])
-    if len(recs)<55: return [INITIAL]
-    si,ei=50,len(recs)-13; sh=int(INITIAL/recs[si]["c"]/100)*100
+    if len(recs)<65: return [INITIAL]
+    si,ei=60,len(recs)-13; sh=int(INITIAL/recs[si]["c"]/100)*100
     return [sh*recs[i]["c"] for i in range(si,ei+1)]
 
 def metrics(equity, n_trades, win_rate, name):
@@ -299,16 +268,15 @@ def main():
 
     # 4个变体
     variants = [
-        ("旧回测(55/40/5,等额)", "old", "equal"),
-        ("统一CP(50/20/30,等额)", "production", "equal"),
-        ("统一CP+加权(50/20/30,CP加权)", "production", "weighted"),
+        ("统一CP(50/20/30,等额)", "unified", "equal"),
+        ("统一CP+加权(50/20/30,CP加权)", "unified", "weighted"),
     ]
 
     periods=[("3年","2023-05","2026-05"),("2年","2024-05","2026-05"),("1年","2025-05","2026-05")]
 
     for pname, spfx, epfx in periods:
         mask=[i for i,d in enumerate(ref_dates) if d>=spfx and d<=epfx]
-        si,ei=max(50,mask[0]),min(len(ref)-13,mask[-1])
+        si,ei=max(60,mask[0]),min(len(ref)-13,mask[-1])
         if si>=ei: continue
 
         precs={}
@@ -316,7 +284,7 @@ def main():
             dlist=data_dict[c]
             if si<len(dlist) and ei<len(dlist):
                 precs[c]=dlist[si:ei+1]
-        if "510300" not in precs or len(precs["510300"])<55: continue
+        if "510300" not in precs or len(precs["510300"])<65: continue
 
         print(f"\n{'─'*90}")
         print(f"📅 {pname} ({precs['510300'][0]['date']} ~ {precs['510300'][-1]['date']})")
@@ -341,9 +309,8 @@ def main():
 
     for pname in ["3年","2年","1年"]:
         print(f"\n  [{pname}]")
-        print(f"    旧回测 (回测之前显示的数字): 权重不同, 不可信")
-        print(f"    统一CP (你现在实际在跑的策略): 这才是真实收益")
-        print(f"    统一CP+加权 (进一步优化): CP更高=买更多, CP更低=买更少")
+        print(f"    统一CP (50/20/30): 与生产环境一致")
+        print(f"    统一CP+加权 (CP更高=买更多, CP更低=买更少)")
 
     print(f"\n{'='*90}")
     print("回答你的问题: 按邮件执行能赚钱吗?")

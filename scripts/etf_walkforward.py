@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Walk-Forward验证: 网格搜索参数 → 样本外测试 → 对比简化模型"""
 
-import os, sys, io, json, urllib.request, ssl, itertools, copy
+import os, sys, io, itertools, copy
 from collections import defaultdict
 
 if hasattr(sys.stdout, 'buffer') and sys.stdout.encoding != 'utf-8':
@@ -10,59 +10,7 @@ if hasattr(sys.stdout, 'buffer') and sys.stdout.encoding != 'utf-8':
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, SCRIPT_DIR)
 from etf_engine import ETFS
-
-SSL_CTX = ssl.create_default_context()
-SSL_CTX.check_hostname = False; SSL_CTX.verify_mode = ssl.CERT_NONE
-COMMISSION = 0.00025; SLIPPAGE = 0.0005; INITIAL = 100000
-
-
-def fetch(code, limit=800):
-    pfx = "sh" if code.startswith(("51","56","0")) else "sz"
-    if code.startswith("sh") or code.startswith("sz"): pfx2, nc = code[:2], code[2:]
-    else: pfx2, nc = pfx, code
-    url = f"http://web.ifzq.gtimg.cn/appstock/app/fqkline/get?param={pfx2}{nc},day,,,{limit},qfq"
-    req = urllib.request.Request(url, headers={"User-Agent":"Mozilla/5.0"})
-    with urllib.request.urlopen(req, timeout=15, context=SSL_CTX) as r:
-        d = json.loads(r.read().decode("utf-8"))
-    k = d.get("data",{}).get(f"{pfx2}{nc}",{}).get("qfqday",[]) or d.get("data",{}).get(f"{pfx2}{nc}",{}).get("day",[])
-    return [{"date":r[0],"o":float(r[1]),"c":float(r[2]),"h":float(r[3]),"l":float(r[4]),"v":float(r[5])}
-            for r in k if len(r)>=6 and r[0]]
-
-
-def detect_trend(ref, day_i):
-    if day_i < 50: return {"trend":"neutral","slope":0,"strength":50,"above_ma":True}
-    closes = [d["c"] for d in ref[day_i-49:day_i+1]]
-    ma_now = sum(closes)/len(closes)
-    ma_10d = sum(closes[:10])/10
-    slope = (ma_now-ma_10d)/ma_10d*100 if ma_10d>0 else 0
-    above = ref[day_i]["c"] > ma_now
-    if slope > 1.0 and above: t = "up"
-    elif slope < -1.0 and not above: t = "down"
-    else: t = "neutral"
-    s = min(100, 50+slope*15) if t!="neutral" else 50
-    return {"trend":t,"slope":round(slope,2),"strength":round(s,1),"above_ma":above}
-
-
-def calc_rs(etf_chg, idx_chg, vol_ratio):
-    excess = etf_chg-idx_chg; score, is_c = 0, False
-    if idx_chg < -0.5 and etf_chg > idx_chg+0.3: score += 40; is_c = True
-    if idx_chg < -1.5 and is_c: score += min(20, abs(idx_chg)*3)
-    if idx_chg < -0.5 and vol_ratio > 1.3 and etf_chg > idx_chg+0.5: score += 25
-    if excess > 0.3: score += min(20, excess*6)
-    if idx_chg > 1.5 and 0 < excess < 0.3: score -= 15
-    if idx_chg > 2.0 and excess < 0.5: score -= 10
-    if etf_chg > 1.5 and vol_ratio < 0.8: score -= 20
-    return max(0, min(100, score)), is_c
-
-
-def compute_cp(records, day_i, idx_chg):
-    r = records[day_i]; c, v = r["c"], r["v"]
-    chg = (c-records[day_i-1]["c"])/records[day_i-1]["c"]*100
-    vols = [records[j]["v"] for j in range(max(0,day_i-19),day_i+1)]
-    ma20 = sum(vols)/len(vols); vr = v/ma20 if ma20>0 else 1
-    v_raw = min(1, max(0, (vr-0.7)/1.3)) if vr >= 0.7 else 0
-    rs, is_c = calc_rs(chg, idx_chg, vr); d_raw = rs/100
-    return (v_raw*0.55 + d_raw*0.40 + 0.12*0.05)*100, chg, vr, is_c, c
+from etf_signals import fetch, detect_trend, calc_rs, compute_cp, COMMISSION, SLIPPAGE, INITIAL
 
 
 def get_params_from_trend(trend, cfg):
@@ -77,11 +25,11 @@ def get_params_from_trend(trend, cfg):
 def backtest_one(data_dict, cfg_params):
     """单次回测, 返回 (trades, equity, metrics_dict)"""
     ref = data_dict.get("510300", [])
-    if len(ref) < 55: return [], [INITIAL], {}
+    if len(ref) < 65: return [], [INITIAL], {}
 
     cash = INITIAL; holding = {}; equity = [INITIAL]; trades = []
 
-    for day_i in range(50, len(ref) - 12):
+    for day_i in range(60, len(ref) - 12):
         idx_c = ref[day_i]["c"]
         idx_chg = (idx_c-ref[day_i-1]["c"])/ref[day_i-1]["c"]*100
         trend = detect_trend(ref, day_i)
@@ -255,9 +203,9 @@ def slice_data(data_dict, start_date, end_date):
     ref = data_dict.get("510300", [])
     ref_dates = [r["date"] for r in ref]
     mask = [i for i, d in enumerate(ref_dates) if start_date <= d <= end_date]
-    if len(mask) < 60: return None
-    si, ei = max(50, mask[0]), min(len(ref)-13, mask[-1])
-    if ei - si < 50: return None
+    if len(mask) < 70: return None
+    si, ei = max(60, mask[0]), min(len(ref)-13, mask[-1])
+    if ei - si < 60: return None
     result = {}
     for code, recs in data_dict.items():
         if si < len(recs) and ei < len(recs):

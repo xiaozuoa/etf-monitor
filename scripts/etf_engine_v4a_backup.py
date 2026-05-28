@@ -727,12 +727,13 @@ def detect_market_trend(code="510300", ma_period=50):
     if len(data) < ma_period:
         return {"trend": "neutral", "slope": 0, "strength": 50}
 
-    # 计算MA
-    closes = [d["c"] for d in data[-ma_period:]]
-    ma_now = sum(closes) / len(closes)
-
-    # MA斜率: (当前MA - 10天前MA) / 10天前MA
-    ma_10d_ago = sum(closes[:10]) / 10
+    # 计算MA — 正确版: 需要ma_period+10数据点
+    closes_all = [d["c"] for d in data[-(ma_period+10):]] if len(data) >= ma_period+10 else [d["c"] for d in data[-ma_period:]]
+    ma_now = sum(closes_all[-ma_period:]) / ma_period
+    if len(closes_all) >= ma_period+10:
+        ma_10d_ago = sum(closes_all[:ma_period]) / ma_period
+    else:
+        ma_10d_ago = ma_now
     slope = (ma_now - ma_10d_ago) / ma_10d_ago * 100 if ma_10d_ago > 0 else 0
 
     # 价格在MA之上/之下

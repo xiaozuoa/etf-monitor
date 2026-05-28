@@ -59,13 +59,14 @@ def compute_cp(records, day_i, idx_chg):
 
 
 def detect_trend_at(ref_records, day_i):
-    """在回测中检测day_i时刻的趋势"""
-    if day_i < 50:
+    """在回测中检测day_i时刻的趋势 — 正确版MA斜率"""
+    need = 60
+    if day_i < need:
         return {"trend":"neutral","slope":0,"strength":50,"above_ma":True}
-    closes = [d["c"] for d in ref_records[day_i-49:day_i+1]]
-    ma_now = sum(closes)/len(closes)
-    ma_10d = sum(closes[:10])/10
-    slope = (ma_now-ma_10d)/ma_10d*100 if ma_10d>0 else 0
+    closes = [d["c"] for d in ref_records[day_i-need+1:day_i+1]]
+    ma_now = sum(closes[-50:])/50
+    ma_10d_ago = sum(closes[:50])/50
+    slope = (ma_now-ma_10d_ago)/ma_10d_ago*100 if ma_10d_ago>0 else 0
     above = ref_records[day_i]["c"] > ma_now
     if slope > 1.0 and above: trend = "up"
     elif slope < -1.0 and not above: trend = "down"
@@ -86,7 +87,7 @@ def backtest_v5(data_dict):
 
 def _backtest(data_dict, use_min_position=False, use_consec_boost=False):
     ref = data_dict.get("510300", [])
-    if len(ref) < 55: return [], [INITIAL]
+    if len(ref) < 65: return [], [INITIAL]
 
     cash = INITIAL; holding = {}; equity = [INITIAL]; trades = []
     # 连日趋追踪
@@ -94,7 +95,7 @@ def _backtest(data_dict, use_min_position=False, use_consec_boost=False):
     # 底仓冷却期 (退出底仓后N天内不重新进场)
     base_cooldown = 0
 
-    for day_i in range(50, len(ref) - 12):
+    for day_i in range(60, len(ref) - 12):
         date = ref[day_i]["date"]
         if base_cooldown > 0:
             base_cooldown -= 1
@@ -287,8 +288,8 @@ def _backtest(data_dict, use_min_position=False, use_consec_boost=False):
 
 def buy_hold(data_dict, code="510300"):
     records = data_dict.get(code, [])
-    if len(records) < 55: return [INITIAL]
-    si, ei = 50, len(records)-13
+    if len(records) < 65: return [INITIAL]
+    si, ei = 60, len(records)-13
     shares = int(INITIAL/records[si]["c"]/100)*100
     return [shares*records[i]["c"] for i in range(si, ei+1)]
 
@@ -297,8 +298,8 @@ def equal_weight(data_dict):
     equities = []
     for code in ETFS:
         records = data_dict.get(code, [])
-        if len(records) < 55: continue
-        si, ei = 50, len(records)-13
+        if len(records) < 65: continue
+        si, ei = 60, len(records)-13
         shares = int((INITIAL/len(ETFS))/records[si]["c"]/100)*100
         equities.append([shares*records[i]["c"] for i in range(si, ei+1)])
     if not equities: return [INITIAL]
@@ -362,7 +363,7 @@ def main():
         # 裁剪数据到该周期
         mask = [i for i, d in enumerate(ref_dates) if d >= start_pfx and d <= end_pfx]
         if len(mask) < 60: continue
-        si, ei = max(50, mask[0]), min(len(ref)-13, mask[-1])
+        si, ei = max(60, mask[0]), min(len(ref)-13, mask[-1])
         if ei - si < 50: continue
 
         pdata = {}

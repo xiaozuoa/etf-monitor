@@ -1,18 +1,15 @@
 #!/usr/bin/env python3
 """15 ETF池优化 — 共振阈值+持有期网格搜索 vs 旧9只"""
 
-import os, sys, io, json, urllib.request, ssl, time, itertools
+import os, sys, io, time, itertools
 
 if hasattr(sys.stdout, 'buffer') and sys.stdout.encoding != 'utf-8':
     sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, SCRIPT_DIR)
-from etf_engine import ETFS, calc_relative_strength
-
-SSL_CTX = ssl.create_default_context()
-SSL_CTX.check_hostname = False; SSL_CTX.verify_mode = ssl.CERT_NONE
-COMMISSION = 0.00025; SLIPPAGE = 0.0005; INITIAL = 100000
+from etf_engine import ETFS
+from etf_signals import fetch, detect_trend, calc_rs, compute_cp, COMMISSION, SLIPPAGE, INITIAL
 
 # 旧9只池
 OLD_ETFS = {
@@ -21,67 +18,23 @@ OLD_ETFS = {
     "512100":"中证1000","588000":"科创50","159915":"创业板",
 }
 
-def fetch(code, limit=800):
-    pfx = "sh" if code.startswith(("51","56","0")) else "sz"
-    if code.startswith("sh") or code.startswith("sz"): pfx2, nc = code[:2], code[2:]
-    else: pfx2, nc = pfx, code
-    url = f"http://web.ifzq.gtimg.cn/appstock/app/fqkline/get?param={pfx2}{nc},day,,,{limit},qfq"
-    req = urllib.request.Request(url, headers={"User-Agent":"Mozilla/5.0"})
-    with urllib.request.urlopen(req, timeout=15, context=SSL_CTX) as r:
-        d = json.loads(r.read().decode("utf-8"))
-    k = d.get("data",{}).get(f"{pfx2}{nc}",{}).get("qfqday",[]) or d.get("data",{}).get(f"{pfx2}{nc}",{}).get("day",[])
-    return [{"date":r[0],"o":float(r[1]),"c":float(r[2]),"h":float(r[3]),"l":float(r[4]),"v":float(r[5])}
-            for r in k if len(r)>=6 and r[0]]
-
-def detect_trend_at(ref, day_i):
-    if day_i<50: return {"trend":"neutral","slope":0,"strength":50,"above_ma":True}
-    closes=[d["c"] for d in ref[day_i-49:day_i+1]]
-    ma_now=sum(closes)/len(closes); ma_10d=sum(closes[:10])/10
-    slope=(ma_now-ma_10d)/ma_10d*100 if ma_10d>0 else 0
-    above=ref[day_i]["c"]>ma_now
-    if slope>1.0 and above: trend="up"
-    elif slope<-1.0 and not above: trend="down"
-    else: trend="neutral"
-    strength=min(100,50+slope*15) if trend!="neutral" else 50
-    return {"trend":trend,"slope":round(slope,2),"strength":round(strength,1),"above_ma":above}
-
-def calc_rs(etf_chg, idx_chg, vol_ratio):
-    excess=etf_chg-idx_chg; score,is_c=0,False
-    if idx_chg<-0.5 and etf_chg>idx_chg+0.3: score+=40;is_c=True
-    if idx_chg<-1.5 and is_c: score+=min(20,abs(idx_chg)*3)
-    if idx_chg<-0.5 and vol_ratio>1.3 and etf_chg>idx_chg+0.5: score+=25
-    if excess>0.3: score+=min(20,excess*6)
-    if idx_chg>1.5 and 0<excess<0.3: score-=15
-    if idx_chg>2.0 and excess<0.5: score-=10
-    if etf_chg>1.5 and vol_ratio<0.8: score-=20
-    return max(0,min(100,score)),is_c
-
-def compute_cp(records, day_i, idx_chg):
-    r=records[day_i]; c,v=r["c"],r["v"]
-    chg=(c-records[day_i-1]["c"])/records[day_i-1]["c"]*100
-    vols=[records[j]["v"] for j in range(max(0,day_i-19),day_i+1)]
-    ma20=sum(vols)/len(vols); vr=v/ma20 if ma20>0 else 1
-    v_raw=min(1,max(0,(vr-0.7)/1.3)) if vr>=0.7 else 0
-    rs,is_c=calc_rs(chg,idx_chg,vr); d_raw=rs/100
-    return (v_raw*0.55+d_raw*0.40+0.12*0.05)*100, chg, vr, is_c, c
-
 def backtest(data_dict, etf_pool, config):
     """
     config: {regime: {cp_threshold, resonance_min, hold_days, allow_pyramiding}}
     """
     ref = data_dict.get("510300",[])
-    if len(ref)<55: return [],[INITIAL]
+    if len(ref)<65: return [],[INITIAL]
 
     cash = INITIAL; holding = {}; equity = [INITIAL]; trades = []
     base_cooldown = 0
     n_etf = len([c for c in data_dict if c in etf_pool])
 
-    for day_i in range(50, len(ref)-12):
+    for day_i in range(60, len(ref)-12):
         date = ref[day_i]["date"]
         if base_cooldown>0: base_cooldown-=1
         idx_c=ref[day_i]["c"]; idx_chg=(idx_c-ref[day_i-1]["c"])/ref[day_i-1]["c"]*100
 
-        trend = detect_trend_at(ref, day_i)
+        trend = detect_trend(ref, day_i)
         t = trend["trend"]; above = trend["above_ma"]
 
         # 选配置
@@ -198,8 +151,8 @@ def metrics(equity, trades):
 
 def buy_hold(data_dict):
     recs=data_dict.get("510300",[])
-    if len(recs)<55: return [INITIAL]
-    si,ei=50,len(recs)-13; sh=int(INITIAL/recs[si]["c"]/100)*100
+    if len(recs)<65: return [INITIAL]
+    si,ei=60,len(recs)-13; sh=int(INITIAL/recs[si]["c"]/100)*100
     return [sh*recs[i]["c"] for i in range(si,ei+1)]
 
 def main():
@@ -220,7 +173,7 @@ def main():
 
     ref=data_dict["510300"]; ref_dates=[r["date"] for r in ref]
     mask=[i for i,d in enumerate(ref_dates) if d>="2023-05"]
-    si,ei=max(50,mask[0]),min(len(ref)-13,len(ref_dates)-1)
+    si,ei=max(60,mask[0]),min(len(ref)-13,len(ref_dates)-1)
 
     # 切分窗口
     def slice_data(raw, si, ei):
