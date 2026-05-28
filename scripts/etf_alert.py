@@ -203,6 +203,7 @@ def run(is_post_market=None):
     resonance["mid_count"] = len(dynamic_mid)
     resonance["etfs"] = dynamic_mid
     resonance["high_count"] = sum(1 for r in dynamic_mid if r["composite_prob"] >= 70)
+    resonance["resonance_min"] = params["resonance_min"]  # 存下当天阈值供连日趋判断
 
     # 连日趋
     consec_info = check_consecutive_days(resonance["mid_count"], resonance["high_count"],

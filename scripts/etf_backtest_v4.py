@@ -97,8 +97,17 @@ def _backtest_core(data_dict, use_dynamic=False, use_trailing=False, hold_days=3
                     if current_c > pos.get("highest", 0):
                         pos["highest"] = current_c
 
-                    # 计算当前ATR
-                    atr_val = pos.get("atr", pos["entry_price"] * 0.015)
+                    # 每日重算ATR (避免使用建仓时的过时波动率)
+                    atr_val = pos["entry_price"] * 0.015
+                    if day_i >= 14:
+                        trs = []
+                        for j in range(day_i - 13, day_i + 1):
+                            if j > 0 and j < len(records):
+                                h, l = records[j]["h"], records[j]["l"]
+                                pc = records[j-1]["c"]
+                                trs.append(max(h - l, abs(h - pc), abs(l - pc)))
+                        if trs:
+                            atr_val = sum(trs) / len(trs)
                     should_exit, reason, stop_price = calc_dynamic_exit(
                         pos["entry_price"], pos["highest"], atr_val,
                         day_i - pos["entry_i"],

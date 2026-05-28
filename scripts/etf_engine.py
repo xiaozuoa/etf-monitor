@@ -280,7 +280,8 @@ def check_consecutive_days(mid_count_today, high_count_today, resonance_min=3):
     sorted_history = [h for h in sorted_history if h.get("date") != today]
 
     for entry in sorted_history[:5]:
-        if entry.get("mid_count", 0) >= resonance_min:
+        entry_min = entry.get("resonance_min", resonance_min)
+        if entry.get("mid_count", 0) >= entry_min:
             consecutive += 1
         else:
             break
@@ -625,6 +626,7 @@ def save_signal_history(resonance_info):
         "mid_count": resonance_info["mid_count"],
         "high_count": resonance_info["high_count"],
         "consecutive": resonance_info.get("consecutive_days", 1),
+        "resonance_min": resonance_info.get("resonance_min", 3),
     })
     with open(history_path, "w", encoding="utf-8") as f:
         json.dump(history[-30:], f, ensure_ascii=False, indent=2)

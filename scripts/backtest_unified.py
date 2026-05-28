@@ -132,7 +132,7 @@ def run_backtest(data_dict, cp_mode, sizing_mode, collector=None):
                     alloc=cash*target; bp=op*(1+SLIPPAGE); sh=int(alloc/bp/100)*100
                     if sh>=100:
                         cost=sh*bp*(1+COMMISSION)
-                        if cost<=cash: cash-=cost; holding["base"]={"shares":sh,"cost":cost,"entry_price":bp,"entry_date":ref[next_i]["date"],"entry_i":next_i,"highest":bp,"is_base":True}
+                        if cost<=cash: cash-=cost; holding["510300_base"]={"shares":sh,"cost":cost,"entry_price":bp,"entry_date":ref[next_i]["date"],"entry_i":next_i,"highest":bp,"is_base":True}
 
         to_sell=[]
         for code,pos in holding.items():
@@ -186,7 +186,7 @@ def run_backtest(data_dict, cp_mode, sizing_mode, collector=None):
 
             if sizing_mode=='equal':
                 # 等额分配
-                tb=cash*0.8; alloc=tb/len(bl)
+                tb=cash*0.8; alloc=tb/max(len(bl),1)
                 for sig in bl:
                     recs=data_dict.get(sig["code"],[])
                     if next_i>=len(recs): continue

@@ -10,15 +10,23 @@ from collections import defaultdict
 if hasattr(sys.stdout, 'buffer') and sys.stdout.encoding != 'utf-8':
     sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
 
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, SCRIPT_DIR)
+from etf_signals import fetch as _fetch, calc_rs  # calc_rs从共享模块导入, 删除本地副本
+import etf_signals
+
 SSL_CTX = ssl.create_default_context()
 SSL_CTX.check_hostname = False
 SSL_CTX.verify_mode = ssl.CERT_NONE
 
 # === 参数 ===
-COMMISSION = 0.00025
-SLIPPAGE   = 0.0005
+COMMISSION = etf_signals.COMMISSION
+SLIPPAGE   = etf_signals.SLIPPAGE
 HOLD_DAYS  = 3
-INITIAL    = 100000
+INITIAL    = etf_signals.INITIAL
+
+def fetch(code, limit=800):
+    return _fetch(code, limit)
 
 ETFS = {
     "510300": "华泰柏瑞沪深300ETF",
@@ -29,43 +37,6 @@ ETFS = {
     "510500": "华泰柏瑞中证500ETF",
     "512100": "南方中证1000ETF",
 }
-
-
-def fetch(code, limit=800):
-    """腾讯财经K线, 最多可拉800天"""
-    pfx = "sh" if code.startswith(("51", "56", "0")) else "sz"
-    if code.startswith("sh") or code.startswith("sz"):
-        pfx, numcode = code[:2], code[2:]
-    else:
-        numcode = code
-    url = f"http://web.ifzq.gtimg.cn/appstock/app/fqkline/get?param={pfx}{numcode},day,,,{limit},qfq"
-    try:
-        req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
-        with urllib.request.urlopen(req, timeout=20, context=SSL_CTX) as r:
-            d = json.loads(r.read().decode("utf-8"))
-        k = d.get("data", {}).get(f"{pfx}{numcode}", {}).get("qfqday", []) or \
-            d.get("data", {}).get(f"{pfx}{numcode}", {}).get("day", [])
-        return [{"date": r[0], "o": float(r[1]), "c": float(r[2]),
-                 "h": float(r[3]), "l": float(r[4]), "v": float(r[5])}
-                for r in k if len(r) >= 6 and r[0]]
-    except:
-        return []
-
-
-def calc_rs(etf_chg, idx_chg, vol_ratio):
-    """相对强弱因子 (etf_engine.py 同款)"""
-    excess = etf_chg - idx_chg
-    score, is_c = 0, False
-    if idx_chg < -0.5 and etf_chg > idx_chg + 0.3:
-        score += 40; is_c = True
-        if idx_chg < -1.5: score += min(20, abs(idx_chg) * 3)
-    if idx_chg < -0.5 and vol_ratio > 1.3 and etf_chg > idx_chg + 0.5:
-        score += 25
-    if excess > 0.3: score += min(20, excess * 6)
-    if idx_chg > 1.5 and 0 < excess < 0.3: score -= 15
-    if idx_chg > 2.0 and excess < 0.5: score -= 10
-    if etf_chg > 1.5 and vol_ratio < 0.8: score -= 20
-    return max(0, min(100, score)), is_c
 
 
 def align_data(data_dict):

@@ -361,7 +361,7 @@ def get_historical_share(code, target_date, history):
                 if isinstance(history.get(prev_d, {}), dict) and code in history[prev_d]:
                     prev_share = history[prev_d][code].get("shares_yi")
                     break
-        if target_share and prev_share:
+        if target_share and prev_share and prev_share > 0:
             delta_yi = round(target_share - prev_share, 2)
             delta_pct = round(delta_yi / prev_share * 100, 2)
             return target_share, prev_share, delta_yi, delta_pct

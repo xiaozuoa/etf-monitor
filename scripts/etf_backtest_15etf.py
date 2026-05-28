@@ -67,7 +67,7 @@ def backtest(data_dict, etf_pool, config):
                         alloc=cash*target; bp=op*(1+SLIPPAGE); sh=int(alloc/bp/100)*100
                         if sh>=100:
                             cost=sh*bp*(1+COMMISSION)
-                            if cost<=cash: cash-=cost; holding["base"]={"shares":sh,"cost":cost,"entry_price":bp,"entry_date":ref[next_i]["date"],"entry_i":next_i,"highest":bp,"is_base":True}
+                            if cost<=cash: cash-=cost; holding["510300_base"]={"shares":sh,"cost":cost,"entry_price":bp,"entry_date":ref[next_i]["date"],"entry_i":next_i,"highest":bp,"is_base":True}
 
         # 卖出
         to_sell=[]
