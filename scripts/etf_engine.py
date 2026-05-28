@@ -545,6 +545,9 @@ def full_analysis(codes=None, use_realtime=False, use_shares=False, weights=None
             share_raw = max(0.0, min(1.0, share_raw))
 
         # === 综合概率 — 使用共享模块 compute_cp, 消除公式漂移 ===
+        # 注意: compute_cp 内部使用K线收盘量(data[-1]['v']), 而非实时量(v).
+        # 盘中实时量是部分成交量(不完整), 用完整K线量计算CP更稳定.
+        # 下方 vol_prob 展示用实时量, 与CP内部的量能因子可能不同.
         cp, _, _, is_counter, _ = compute_cp(data, len(data) - 1, idx_chg, share_raw)
 
         # 子因子展示分量 (与 compute_cp 内部公式一致)

@@ -184,7 +184,7 @@ def buy_hold(data_dict, code="510300"):
     records = data_dict.get(code, [])
     if len(records) < 25:
         return [INITIAL]
-    start_i, end_i = 20, len(records) - 6
+    start_i, end_i = 20, len(records) - HOLD_DAYS - 2  # 与回测清仓对齐
     shares = int(INITIAL / records[start_i]["c"] / 100) * 100 if records[start_i]["c"] > 0 else 0
     if shares == 0:
         return [INITIAL]
@@ -198,7 +198,7 @@ def equal_weight(data_dict):
         records = data_dict.get(code, [])
         if len(records) < 25:
             continue
-        start_i, end_i = 20, len(records) - 6
+        start_i, end_i = 20, len(records) - HOLD_DAYS - 2  # 与回测清仓对齐
         shares = int((INITIAL / len(ETFS)) / records[start_i]["c"] / 100) * 100 if records[start_i]["c"] > 0 else 0
         if shares == 0:
             continue
@@ -257,8 +257,9 @@ def main():
         return
 
     ref = data_dict["510300"]
-    print(f"\n📅 回测区间: {ref[20]['date']} ~ {ref[-6]['date']} "
-          f"({len(ref)-26}个交易日, ~{(len(ref)-26)/252:.1f}年)")
+    end_idx = len(ref) - HOLD_DAYS - 2
+    print(f"\n📅 回测区间: {ref[20]['date']} ~ {ref[end_idx]['date']} "
+          f"({end_idx-20+1}个交易日, ~{(end_idx-20+1)/252:.1f}年)")
 
     # 回测
     print("\n⏳ 运行策略...")
@@ -285,7 +286,7 @@ def main():
         indices = [i for i, m in enumerate(mask) if m]
         if len(indices) < 25:
             continue
-        si, ei = max(20, indices[0]), min(len(ref_dates) - 6, indices[-1])
+        si, ei = max(20, indices[0]), min(len(ref_dates) - HOLD_DAYS - 2, indices[-1])
         if ei - si < 20:
             continue
         year_data = {}

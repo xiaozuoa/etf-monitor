@@ -106,6 +106,7 @@ def send_email(analysis, is_post_market, trend, params, min_pct, consec_info):
         lines.append(f"     现价约 {a['close']:.3f}元 | 亏{sl_pct}%就卖=跌破{sl_price}元")
     lines.append("")
     lines.append(f"  怎么买: 明天上午9:30开盘后, 打开中山证券APP")
+    lines.append(f"  (以上价格为今日收盘价, 实际以明日开盘价为准)")
     lines.append(f"  搜索上面的代码, 每个买{total_pct/n_buy:.0f}%的钱")
     lines.append("")
     lines.append("━━━━━━━━━━━━━━━━━━━━━━━━")
@@ -256,11 +257,11 @@ def run(is_post_market=None):
     print(f"  🚨 发送...")
     sent = send_email(analysis, is_post_market=True, trend=trend, params=params,
                min_pct=min_pct, consec_info=consec_info)
-    log["last_sent"] = f"{datetime.now().strftime('%Y%m%d')}_{datetime.now().isoformat()}"
-    with open(log_path, 'w') as f: json.dump(log, f)
 
-    # 记录持仓
+    # 记录持仓 + dedup (仅在发送成功时)
     if sent:
+        log["last_sent"] = f"{datetime.now().strftime('%Y%m%d')}_{datetime.now().isoformat()}"
+        with open(log_path, 'w') as f: json.dump(log, f)
         record_position(resonance, params, trend)
 
 
@@ -340,6 +341,22 @@ def check_sell_reminder():
         trend = detect_market_trend()
         if trend["trend"] == "down" and trend["strength"] < 40 and days_held >= 2:
             return {"reason": "趋势转弱, 建议减仓", "position": pos}
+
+        # 条件4: 个股权重止盈/止损 (自动检测, 与邮件建议的5%/3%一致)
+        if pos.get("entry_time") and days_held >= 1:
+            for etf in pos.get("etfs", []):
+                try:
+                    from etf_signals import fetch as _fetch_price
+                    kdata = _fetch_price(etf["code"], 5)
+                    if kdata:
+                        cur = kdata[-1]["c"]
+                        pnl = (cur - etf["entry_price"]) / etf["entry_price"] * 100
+                        if pnl >= 5.0:
+                            return {"reason": f"{etf['code']} 止盈(+{pnl:.1f}%)", "position": pos}
+                        if pnl <= -3.0:
+                            return {"reason": f"{etf['code']} 止损({pnl:.1f}%)", "position": pos}
+                except:
+                    pass
 
     return None
 

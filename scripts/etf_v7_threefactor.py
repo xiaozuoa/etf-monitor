@@ -532,7 +532,10 @@ def gen_html(all_hist, latest_map, idx_300_data, shares_data, target_date):
         for h in hh:
             dates.add(h["d"])
     dates = sorted(dates)
-    primary_date = target_date if target_date in dates else dates[-1]
+    if not dates:
+        primary_date = target_date if target_date else datetime.now().strftime("%Y-%m-%d")
+    else:
+        primary_date = target_date if target_date in dates else dates[-1]
 
     primary = {}
     high_codes = []
