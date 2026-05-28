@@ -28,9 +28,9 @@ print("=" * 60)
 
 files_to_check = {
     "backtest_unified.py": ("holding[\"510300_base\"]", "holding[\"base\"]"),
-    "backup/etf_backtest_15etf.py": ("holding[\"510300_base\"]", "holding[\"base\"]"),
-    "backup/etf_backtest_allmodels.py": ("holding[\"510300_base\"]", "holding[\"base\"]"),
-    "backup/etf_optimize_hold.py": ("holding[\"510300_base\"]", "holding[\"base\"]"),
+    "etf_backtest_15etf.py": ("holding[\"510300_base\"]", "holding[\"base\"]"),
+    "etf_backtest_allmodels.py": ("holding[\"510300_base\"]", "holding[\"base\"]"),
+    "etf_optimize_hold.py": ("holding[\"510300_base\"]", "holding[\"base\"]"),
 }
 
 for fname, (good_key, bad_key) in files_to_check.items():
@@ -51,7 +51,7 @@ print("\n" + "=" * 60)
 print("Bug #8: v4 backtest recomputes ATR during holding period")
 print("=" * 60)
 
-v4_path = os.path.join(SCRIPT_DIR, "backup", "etf_backtest_v4.py")
+v4_path = os.path.join(SCRIPT_DIR, "etf_backtest_v4.py")
 with open(v4_path, "r", encoding="utf-8") as f:
     v4_src = f.read()
 
