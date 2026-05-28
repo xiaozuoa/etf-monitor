@@ -129,7 +129,7 @@ def backtest(data_dict, use_resonance=True, cp_thresh=50, res_min=3, hold_days=3
             if prev is None:
                 continue
             chg = (c - prev["c"]) / prev["c"] * 100
-            vols = [records[j]["v"] for j in range(max(0, day_i-19), day_i+1)
+            vols = [records[j]["v"] for j in range(max(0, day_i-20), day_i)
                     if records[j] is not None]
             if len(vols) < 10:
                 continue
@@ -140,7 +140,7 @@ def backtest(data_dict, use_resonance=True, cp_thresh=50, res_min=3, hold_days=3
             rs, is_c = calc_rs(chg, idx_chg, vr)
             d_raw = rs / 100
             s_raw = 0.12
-            cp = (v_raw * 0.55 + d_raw * 0.40 + s_raw * 0.05) * 100
+            cp = (v_raw * 0.50 + d_raw * 0.20 + s_raw * 0.30) * 100
 
             if cp >= cp_thresh:
                 signals.append({"code": code, "cp": cp, "chg": chg, "vr": vr,

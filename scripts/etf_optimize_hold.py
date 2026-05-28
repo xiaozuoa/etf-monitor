@@ -16,6 +16,16 @@ def detect_trend_at(ref, day_i):
     return detect_trend(ref, day_i)
 
 def get_dynamic_v5(trend):
+    """v5动态参数"""
+    t = trend["trend"]; a = trend["above_ma"]
+    if t == "up":
+        return {"cp_threshold":45,"resonance_min":2,"hold_days":6,"allow_pyramiding":True,"regime":"up"}
+    elif t == "down":
+        return {"cp_threshold":50,"resonance_min":3,"hold_days":3,"allow_pyramiding":False,"regime":"down"}
+    elif a:
+        return {"cp_threshold":50,"resonance_min":2,"hold_days":4,"allow_pyramiding":False,"regime":"neutral_up"}
+    else:
+        return {"cp_threshold":50,"resonance_min":3,"hold_days":3,"allow_pyramiding":False,"regime":"neutral_down"}
 
 
 def backtest_v5_hold(data_dict, hold_days_map):
@@ -45,9 +55,9 @@ def backtest_v5_hold(data_dict, hold_days_map):
         else: min_pct=0
 
         total_eq=cash
-        for _,pos in holding.items():
-            r300=data_dict.get("510300",[])
-            if day_i<len(r300) and r300[day_i]: total_eq+=pos["shares"]*r300[day_i]["c"]
+        for code,pos in holding.items():
+            recs=data_dict.get(code,data_dict.get("510300",[]))
+            if day_i<len(recs) and recs[day_i]: total_eq+=pos["shares"]*recs[day_i]["c"]
             else: total_eq+=pos["shares"]*pos["entry_price"]
         cur_exp=(total_eq-cash)/total_eq if total_eq>0 else 0
 

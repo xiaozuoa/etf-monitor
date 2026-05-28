@@ -51,9 +51,9 @@ def backtest(data_dict, etf_pool, config):
         else: min_pct=0
 
         total_eq=cash
-        for _,pos in holding.items():
-            r300=data_dict.get("510300",[])
-            if day_i<len(r300) and r300[day_i]: total_eq+=pos["shares"]*r300[day_i]["c"]
+        for code,pos in holding.items():
+            recs=data_dict.get(code,data_dict.get("510300",[]))
+            if day_i<len(recs) and recs[day_i]: total_eq+=pos["shares"]*recs[day_i]["c"]
             else: total_eq+=pos["shares"]*pos["entry_price"]
         cur_exp=(total_eq-cash)/total_eq if total_eq>0 else 0
 

@@ -64,7 +64,7 @@ class ShareSimulator:
         r = recs[date_idx]
         prev = recs[date_idx-1]
         chg = (r["c"]-prev["c"])/prev["c"]*100 if prev["c"]>0 else 0
-        vols = [recs[j]["v"] for j in range(date_idx-19, date_idx+1)]
+        vols = [recs[j]["v"] for j in range(date_idx-20, date_idx)]
         ma20 = sum(vols)/len(vols)
         vr = r["v"]/ma20 if ma20>0 else 1
 
@@ -118,8 +118,10 @@ def run_backtest(data_dict, cp_mode, sizing_mode, collector=None):
         else: min_pct=0
 
         total_eq=cash
-        for _,pos in holding.items():
-            total_eq+=pos["shares"]*ref[day_i]["c"] if day_i<len(ref) else pos["shares"]*pos["entry_price"]
+        for code,pos in holding.items():
+            recs=data_dict.get(code,data_dict.get("510300",[]))
+            if day_i<len(recs) and recs[day_i]: total_eq+=pos["shares"]*recs[day_i]["c"]
+            else: total_eq+=pos["shares"]*pos["entry_price"]
         cur_exp=(total_eq-cash)/total_eq if total_eq>0 else 0
 
         if min_pct>0.15 and len([p for p in holding.values() if p.get("is_base")])==0 and cur_exp<0.1 and a and s>55 and base_cooldown<=0:
@@ -157,8 +159,8 @@ def run_backtest(data_dict, cp_mode, sizing_mode, collector=None):
             if code not in ETFS or day_i>=len(recs): continue
             r=recs[day_i]; c,v=r["c"],r["v"]
             chg=(c-recs[day_i-1]["c"])/recs[day_i-1]["c"]*100
-            vols=[recs[j]["v"] for j in range(max(0,day_i-19),day_i+1)]
-            ma20=sum(vols)/len(vols); vr=v/ma20 if ma20>0 else 1
+            vols=[recs[j]["v"] for j in range(max(0,day_i-20),day_i)]
+            ma20=sum(vols)/len(vols) if vols else 1; vr=v/ma20 if ma20>0 else 1
             v_raw=min(1,max(0,(vr-0.7)/1.3)) if vr>=0.7 else 0
             rs,is_c=calc_rs(chg,idx_chg,vr); d_raw=rs/100
 
