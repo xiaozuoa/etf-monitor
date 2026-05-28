@@ -65,7 +65,7 @@ class ShareSimulator:
         prev = recs[date_idx-1]
         chg = (r["c"]-prev["c"])/prev["c"]*100 if prev["c"]>0 else 0
         vols = [recs[j]["v"] for j in range(date_idx-20, date_idx)]
-        ma20 = sum(vols)/len(vols)
+        ma20 = sum(vols)/len(vols) if vols else 1
         vr = r["v"]/ma20 if ma20>0 else 1
 
         # 5日趋势

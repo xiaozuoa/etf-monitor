@@ -253,7 +253,7 @@ class ETFDataStore:
         """
         records = {}
         for code, r in etf_results.items():
-            level = "HIGH" if r.get("cp", 0) >= 70 else ("MID" if r.get("cp", 0) >= 50 else "LOW")
+            level = "HIGH" if (r.get("cp") or 0) >= 70 else ("MID" if (r.get("cp") or 0) >= 50 else "LOW")
             records[code] = {
                 "date": date,
                 "code": code,

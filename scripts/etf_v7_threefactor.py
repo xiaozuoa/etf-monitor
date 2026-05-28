@@ -237,7 +237,7 @@ def _fetch_sse_shares(code, date_str):
         if df is None:
             continue
         try:
-            row = df[df['基金代码'] == code]
+            row = df[df['基金代码'].astype(str) == str(code)]
             if len(row) > 0:
                 shares_fen = float(row['基金份额'].values[0])
                 shares_yi = round(shares_fen / 1e8, 4)
@@ -304,7 +304,7 @@ def fetch_history_shares_bulk(dates_list):
             if code.startswith('159'):
                 continue  # 深交所在后面处理
             try:
-                row = df[df['基金代码'] == code]
+                row = df[df['基金代码'].astype(str) == str(code)]
                 if len(row) > 0:
                     shares_yi = round(float(row['基金份额'].values[0]) / 1e8, 2)
                     if d not in history:
