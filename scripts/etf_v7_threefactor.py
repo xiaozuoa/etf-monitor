@@ -57,6 +57,12 @@ except ImportError:
     DATA_STORE_AVAILABLE = False
     print("⚠️ etf_data_store.py 未找到，本地数据存储功能不可用")
 
+try:
+    from etf_signals import compute_cp
+    CP_UNIFIED = True
+except ImportError:
+    CP_UNIFIED = False
+
 ssl_ctx = ssl.create_default_context()
 ssl_ctx.check_hostname = False
 ssl_ctx.verify_mode = ssl.CERT_NONE
@@ -496,12 +502,23 @@ def analyze_all(data, idx_d, shares_map, days=35, code=None):
             share_delta_yi = info.get("delta_yi")
             sp = sprob(share_delta_pct)
 
-        # 三因子综合概率
-        if sp is not None:
-            cp = round(vp * 0.5 + dp * 0.2 + sp * 0.3, 1)
+        # CP 统一引擎 — 与邮件信号一致 (含动态权重 45/25)
+        if CP_UNIFIED:
+            sr = None
+            if share_delta_pct is not None:
+                if share_delta_pct > 0.5:
+                    sr = min(1.0, 0.12 + share_delta_pct * 0.06)
+                elif share_delta_pct < -1:
+                    sr = max(0.0, 0.12 + share_delta_pct * 0.03)
+                else:
+                    sr = 0.12
+            cp, _, _, _, _ = compute_cp(data, i, idchg, sr)
+            cp = round(cp, 1)
         else:
-            # 份额数据不可用，退化为二因子（保持70/30用于对比）
-            cp = round(vp * 0.7 + dp * 0.3, 1)
+            if sp is not None:
+                cp = round(vp * 0.5 + dp * 0.2 + sp * 0.3, 1)
+            else:
+                cp = round(vp * 0.7 + dp * 0.3, 1)
 
         tag = SPECIAL.get(d["date"], "")
         res.append({
