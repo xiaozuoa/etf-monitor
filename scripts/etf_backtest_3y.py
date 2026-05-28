@@ -103,7 +103,7 @@ def backtest(data_dict, use_resonance=True, cp_thresh=50, res_min=3, hold_days=3
             d_raw = rs / 100
             s_raw = 0.12
             if idx_chg < 0:
-                w_vol, w_dir = 0.45, 0.25
+                w_vol, w_dir = 0.55, 0.25
             else:
                 w_vol, w_dir = etf_signals.W_VOL, etf_signals.W_DIR
             cp = (v_raw * w_vol + d_raw * w_dir + s_raw * etf_signals.W_SHARE) * 100

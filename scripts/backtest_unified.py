@@ -30,7 +30,7 @@ def compute_cp_unified(v_raw, d_raw, idx_chg=0, code=None, date=None, collector=
             elif dp<-1:   share_raw = max(0.0, 0.12+dp*0.03)
             share_raw = max(0,min(1,share_raw))
     if idx_chg < 0:
-        w_vol, w_dir = 0.45, 0.25
+        w_vol, w_dir = 0.55, 0.25
     else:
         w_vol, w_dir = W_VOL, W_DIR
     return (v_raw*w_vol + d_raw*w_dir + share_raw*W_SHARE)*100
