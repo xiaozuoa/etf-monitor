@@ -7,7 +7,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from etf_engine import ETFS
 from etf_signals import fetch, detect_trend, calc_rs, COMMISSION, SLIPPAGE, INITIAL
 
-def get_cfg(t,                                                     a):
+def get_cfg(t):
     """2状态趋势配置 — 与生产 etf_engine.get_dynamic_params 一致 (2026-05-28简化)"""
     if t == "up":
         return {"cp_threshold": 50, "resonance_min": 2, "hold_days": 7, "allow_pyramiding": True}
@@ -110,7 +110,7 @@ def run_backtest(data_dict, cp_mode, sizing_mode, collector=None):
         if base_cooldown>0: base_cooldown-=1
         idx_c=ref[day_i]["c"]; idx_chg=(idx_c-ref[day_i-1]["c"])/ref[day_i-1]["c"]*100
         trend=detect_trend(ref,day_i); t=trend["trend"]; a=trend["above_ma"]; s=trend["strength"]
-        cfg=get_cfg(t,a)
+        cfg=get_cfg(t)
 
         if s>=70: min_pct=0.40
         elif s>=50 and t=="up": min_pct=0.25
