@@ -7,7 +7,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from etf_engine import ETFS
 from etf_signals import fetch, detect_trend, calc_rs, COMMISSION, SLIPPAGE, INITIAL
 
-def get_cfg(t,                                                     a):
+def get_cfg(t):
     """2状态趋势配置 — 与生产 etf_engine.get_dynamic_params 一致 (2026-05-28简化)"""
     if t == "up":
         return {"cp_threshold": 50, "resonance_min": 2, "hold_days": 7, "allow_pyramiding": True}
@@ -95,7 +95,7 @@ class ShareSimulator:
 # ==========================================
 # 回测引擎
 # ==========================================
-def run_backtest(data_dict, cp_mode, sizing_mode, collector=None):
+def run_backtest(data_dict, sizing_mode, collector=None):
     """
     sizing_mode: 'equal' = 等额分配, 'weighted' = CP加权分配
     """
@@ -110,7 +110,7 @@ def run_backtest(data_dict, cp_mode, sizing_mode, collector=None):
         if base_cooldown>0: base_cooldown-=1
         idx_c=ref[day_i]["c"]; idx_chg=(idx_c-ref[day_i-1]["c"])/ref[day_i-1]["c"]*100
         trend=detect_trend(ref,day_i); t=trend["trend"]; a=trend["above_ma"]; s=trend["strength"]
-        cfg=get_cfg(t,a)
+        cfg=get_cfg(t)
 
         if s>=70: min_pct=0.40
         elif s>=50 and t=="up": min_pct=0.25
@@ -270,8 +270,8 @@ def main():
 
     # 4个变体
     variants = [
-        ("统一CP(50/20/30,等额)", "unified", "equal"),
-        ("统一CP+加权(50/20/30,CP加权)", "unified", "weighted"),
+        ("统一CP(50/20/30,等额)", "equal"),
+        ("统一CP+加权(50/20/30,CP加权)", "weighted"),
     ]
 
     periods=[("3年","2023-05","2026-05"),("2年","2024-05","2026-05"),("1年","2025-05","2026-05")]
@@ -295,8 +295,8 @@ def main():
         print(f"  {'─'*30} {'─'*7} {'─'*7} {'─'*6} {'─'*5} {'─'*5} {'─'*4}")
 
         period_results=[]
-        for vname, cp_mode, sizing_mode in variants:
-            eq,nt,wr,siglog=run_backtest(precs, cp_mode, sizing_mode, collector)
+        for vname, sizing_mode in variants:
+            eq,nt,wr,siglog=run_backtest(precs, sizing_mode, collector)
             m=metrics(eq,nt,wr,vname)
             period_results.append(m)
             print(f"  {vname:<30} {m['total_return']:>+6.1f}% {m['annual']:>+6.1f}% {m['max_drawdown']:>+5.1f}% {m['sharpe']:>5.2f} {m['win_rate']:>4.1f}% {m['trades']:>4}")
