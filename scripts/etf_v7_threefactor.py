@@ -455,10 +455,11 @@ def sprob(share_delta_pct):
     else:                       return max(0, 5 + (share_delta_pct + 5) / 5 * 5)
 
 
-def analyze_all(data, idx_d, shares_map, target_date, days=35):
+def analyze_all(data, idx_d, shares_map, target_date, days=35, code=None):
     """
     三因子模型分析
     shares_map: {code: {date: {shares_yi, prev_shares_yi, delta_yi, delta_pct}}}
+    code: 当前分析的ETF代码, 用于正确匹配份额数据
     """
     if len(data) < 22: return []
     res = []
@@ -486,16 +487,11 @@ def analyze_all(data, idx_d, shares_map, target_date, days=35):
         dp = dprob(chg, t5, round(t5i, 2), vr, idchg)
 
         # 三因子：份额概率
-        code_key = None
-        for ck in shares_map:
-            if d["date"] in shares_map[ck]:
-                code_key = ck
-                break
         sp = None
         share_delta_pct = None
         share_delta_yi = None
-        if code_key and d["date"] in shares_map[code_key]:
-            info = shares_map[code_key][d["date"]]
+        if code and code in shares_map and d["date"] in shares_map[code]:
+            info = shares_map[code][d["date"]]
             share_delta_pct = info.get("delta_pct")
             share_delta_yi = info.get("delta_yi")
             sp = sprob(share_delta_pct)
@@ -626,7 +622,6 @@ def gen_html(all_hist, latest_map, idx_300_data, shares_data, target_date):
             elif h["cp"] >= 50: date_score[d]["mid"] += 1
     for d in date_score:
         date_score[d]["avg"] = round(date_score[d]["avg"] / date_score[d]["cnt"], 1)
-    date_score[d]["total"] = date_score[d]["high"] * 2 + date_score[d]["mid"]
 
     trend_dates = sorted(date_score.keys())[-15:]
     bars = ""
@@ -1077,7 +1072,7 @@ def main(target_date=None, do_send=False, record_only=False):
             print(f"    ⚠️ 仅{len(data)}条，不足22条")
             continue
 
-        hist = analyze_all(data, idx_300, shares_map, target_date or "", 35)
+        hist = analyze_all(data, idx_300, shares_map, target_date or "", 35, code=code)
         if not hist:
             print("    ⚠️ 分析失败")
             continue
