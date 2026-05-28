@@ -25,7 +25,7 @@ ssl_ctx = ssl.create_default_context()
 ssl_ctx.check_hostname = False
 ssl_ctx.verify_mode = ssl.CERT_NONE
 
-WORKSPACE = os.path.expanduser("~/.etf-skill/workspace")
+WORKSPACE = os.path.expanduser(os.environ.get("ETF_WORKSPACE", "~/.etf-skill/workspace"))
 os.makedirs(WORKSPACE, exist_ok=True)
 
 # ---- ETF池 ----

@@ -16,6 +16,8 @@ SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 if SCRIPT_DIR not in sys.path:
     sys.path.insert(0, SCRIPT_DIR)
 
+# 注意: 此备份原配7-ETF引擎(etf_engine_v3_backup), 现导入etf_engine(15-ETF池).
+# 如需恢复原始7-ETF行为, 改为 from etf_engine_v3_backup import ...
 from etf_engine import (full_analysis, get_optimal_weights, save_signal_history,
                          ETFS, WORKSPACE)
 
