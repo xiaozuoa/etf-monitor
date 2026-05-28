@@ -116,8 +116,8 @@ def fetch(code, limit=60):
         r = urllib.request.Request(u, headers={"User-Agent": "Mozilla/5.0"})
         with urllib.request.urlopen(r, timeout=15, context=ssl_ctx) as resp:
             d = json.loads(resp.read().decode("utf-8"))
-        k = d.get("data", {}).get(f"{pfx}{numcode}", {}).get("day", []) or \
-            d.get("data", {}).get(f"{pfx}{numcode}", {}).get("qfqday", [])
+        k = d.get("data", {}).get(f"{pfx}{numcode}", {}).get("qfqday", []) or \
+            d.get("data", {}).get(f"{pfx}{numcode}", {}).get("day", [])
         return [{"date": r[0], "o": float(r[1]), "c": float(r[2]),
                  "h": float(r[3]), "l": float(r[4]), "v": float(r[5])} for r in k if len(r) >= 6 and r[0]]
     except:
@@ -455,7 +455,7 @@ def sprob(share_delta_pct):
     else:                       return max(0, 5 + (share_delta_pct + 5) / 5 * 5)
 
 
-def analyze_all(data, idx_d, shares_map, target_date, days=35, code=None):
+def analyze_all(data, idx_d, shares_map, days=35, code=None):
     """
     三因子模型分析
     shares_map: {code: {date: {shares_yi, prev_shares_yi, delta_yi, delta_pct}}}
@@ -1072,7 +1072,7 @@ def main(target_date=None, do_send=False, record_only=False):
             print(f"    ⚠️ 仅{len(data)}条，不足22条")
             continue
 
-        hist = analyze_all(data, idx_300, shares_map, target_date or "", 35, code=code)
+        hist = analyze_all(data, idx_300, shares_map, 35, code=code)
         if not hist:
             print("    ⚠️ 分析失败")
             continue
@@ -1145,7 +1145,7 @@ def main(target_date=None, do_send=False, record_only=False):
                 break
         if idx_today:
             prev_idx = None
-            for d in idx_300:
+            for d in reversed(idx_300):
                 if d["date"] < actual_date:
                     prev_idx = d
                     break

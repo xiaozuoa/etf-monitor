@@ -4,8 +4,8 @@
 import os, sys, io, math
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from etf_engine import ETFS, calc_relative_strength
-from etf_signals import fetch, detect_trend, COMMISSION, SLIPPAGE, INITIAL, W_VOL, W_DIR, W_SHARE, DEFAULT_SHARE_RAW
+from etf_engine import ETFS
+from etf_signals import fetch, detect_trend, calc_rs, COMMISSION, SLIPPAGE, INITIAL, W_VOL, W_DIR, W_SHARE, DEFAULT_SHARE_RAW
 
 def get_cfg(t,a):
     if t=="up": return {"cp_threshold":45,"resonance_min":2,"hold_days":10,"allow_pyramiding":True}
@@ -43,10 +43,10 @@ class CPSystem:
     def compute(self, code, recs, ref, day_i, idx_chg):
         r=recs[day_i]; c,v=r["c"],r["v"]
         chg=(c-recs[day_i-1]["c"])/recs[day_i-1]["c"]*100
-        vols=[recs[j]["v"] for j in range(max(0,day_i-19),day_i+1)]
-        ma20=sum(vols)/len(vols); vr=v/ma20 if ma20>0 else 1
+        vols=[recs[j]["v"] for j in range(max(0,day_i-20),day_i)]
+        ma20=sum(vols)/len(vols) if vols else 1; vr=v/ma20 if ma20>0 else 1
         v_raw=min(1,max(0,(vr-0.7)/1.3)) if vr>=0.7 else 0
-        rs,is_c=calc_relative_strength(chg,idx_chg,vr); d_raw=rs/100
+        rs,is_c=calc_rs(chg,idx_chg,vr); d_raw=rs/100
 
         share_raw = DEFAULT_SHARE_RAW
         delta = self._get_share_delta(code, ref[day_i]["date"])
@@ -69,8 +69,8 @@ class CPSystem:
         if di is None or di<20: self._share_cache[key]=None; return None
         r=recs[di]; prev=recs[di-1]
         chg=(r["c"]-prev["c"])/prev["c"]*100 if prev["c"]>0 else 0
-        vols=[recs[j]["v"] for j in range(di-19,di+1)]
-        ma20=sum(vols)/len(vols); vr=r["v"]/ma20 if ma20>0 else 1
+        vols=[recs[j]["v"] for j in range(di-20,di)]
+        ma20=sum(vols)/len(vols) if vols else 1; vr=r["v"]/ma20 if ma20>0 else 1
         chg5=(r["c"]-recs[di-5]["c"])/recs[di-5]["c"]*100 if di>=5 else 0
         if chg>0.5 and vr>1.3 and chg5>0: delta=1.0+vr*1.0+min(chg5*0.3,2.0)
         elif chg<-1 and vr>1.5: delta=-1.0-vr*0.5-min(abs(chg5)*0.2,2.0)
@@ -105,8 +105,10 @@ def run_backtest(data_dict, cp_sys, variant_name):
         else: min_pct=0
 
         total_eq=cash
-        for _,pos in holding.items():
-            total_eq+=pos["shares"]*ref[day_i]["c"] if day_i<len(ref) else pos["shares"]*pos["entry_price"]
+        for code,pos in holding.items():
+            recs=data_dict.get(code,data_dict.get("510300",[]))
+            if day_i<len(recs) and recs[day_i]: total_eq+=pos["shares"]*recs[day_i]["c"]
+            else: total_eq+=pos["shares"]*pos["entry_price"]
         cur_exp=(total_eq-cash)/total_eq if total_eq>0 else 0
 
         # 底仓

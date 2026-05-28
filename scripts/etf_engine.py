@@ -19,7 +19,7 @@ if SCRIPT_DIR not in sys.path:
     sys.path.insert(0, SCRIPT_DIR)
 
 # 复用主脚本的K线fetch
-from etf_v7_threefactor import fetch as _fetch_kline
+from etf_signals import fetch as _fetch_kline, calc_rs, detect_trend, compute_cp
 
 ssl_ctx = ssl.create_default_context()
 ssl_ctx.check_hostname = False
@@ -248,58 +248,16 @@ def _find_prev_share(hist, code, date):
     return None
 
 
-# ================================================================
-# ③ 相对强弱因子 (区分国家队 vs 普涨)
-# ================================================================
-
-def calc_relative_strength(etf_change_pct, idx_change_pct, vol_ratio):
-    """
-    计算相对强弱得分。
-    核心理念: 国家队护盘特征 —
-      - 大盘跌 + ETF涨(或抗跌) → 国家队迹象
-      - 大盘涨 + ETF跟涨 → 普通普涨，不加分
-      - ETF超额收益显著 + 放量 → 机构行为
-    返回: (rs_score, is_counter_market)
-    """
-    excess = etf_change_pct - idx_change_pct
-
-    score = 0
-    is_counter = False
-
-    # 逆市抗跌: 大盘跌但ETF不跌或微涨 → 国家队托底特征
-    if idx_change_pct < -0.5 and etf_change_pct > idx_change_pct + 0.3:
-        score += 40
-        is_counter = True
-        # 跌幅越大,抗跌越强,加分越多
-        if idx_change_pct < -1.5:
-            score += min(20, abs(idx_change_pct) * 3)
-
-    # 放量抗跌: 大盘跌 + ETF放量抗跌 → 强烈国家队信号
-    if idx_change_pct < -0.5 and vol_ratio > 1.3 and etf_change_pct > idx_change_pct + 0.5:
-        score += 25
-
-    # 超额收益: ETF显著跑赢大盘
-    if excess > 0.3:
-        score += min(20, excess * 6)
-
-    # 普涨折扣: 大盘大涨+ETF跟涨 → 可能是普涨, 减分
-    if idx_change_pct > 1.5 and 0 < excess < 0.3:
-        score -= 15  # ETF只是跟涨,不是国家队
-    if idx_change_pct > 2.0 and excess < 0.5:
-        score -= 10
-
-    # 缩量大涨 → 不是国家队(国家队操作必然放量)
-    if etf_change_pct > 1.5 and vol_ratio < 0.8:
-        score -= 20
-
-    return max(0, min(100, score)), is_counter
+# 相对强弱因子 — 已迁移至 etf_signals.calc_rs
+# 保留别名以兼容直接引用
+calc_relative_strength = calc_rs
 
 
 # ================================================================
 # ④ 连续日确认
 # ================================================================
 
-def check_consecutive_days(mid_count_today, high_count_today):
+def check_consecutive_days(mid_count_today, high_count_today, resonance_min=3):
     """检查是否形成连续战役。
     返回: (consecutive_days, campaign_detected, confidence_boost)
     """
@@ -322,7 +280,7 @@ def check_consecutive_days(mid_count_today, high_count_today):
     sorted_history = [h for h in sorted_history if h.get("date") != today]
 
     for entry in sorted_history[:5]:
-        if entry.get("mid_count", 0) >= 3:
+        if entry.get("mid_count", 0) >= resonance_min:
             consecutive += 1
         else:
             break
@@ -561,16 +519,16 @@ def full_analysis(codes=None, use_realtime=False, use_shares=False, weights=None
             if len(data) >= 2:
                 change_pct = (c - data[-2]["c"]) / data[-2]["c"] * 100
 
-        # 20日均量
-        vols = [d["v"] for d in data[-20:]]
-        vol_ma20 = sum(vols) / 20
+        # 20日均量（不含当日）
+        vols = [d["v"] for d in data[-21:-1]]
+        vol_ma20 = sum(vols) / len(vols) if vols else 1
         vol_ratio = v / vol_ma20 if vol_ma20 > 0 else 1
 
         # === 量能因子 (原始值 0-1) ===
         vol_raw = min(1.0, max(0.0, (vol_ratio - 0.7) / 1.3)) if vol_ratio >= 0.7 else 0.0
 
         # === 相对强弱因子 (原始值 0-1) — 替代旧的方向因子 ===
-        rs_score, is_counter = calc_relative_strength(change_pct, idx_chg, vol_ratio)
+        rs_score, is_counter = calc_rs(change_pct, idx_chg, vol_ratio)
         dir_raw = rs_score / 100.0
 
         # === 份额因子 (原始值 0-1) ===
@@ -690,46 +648,13 @@ def get_optimal_weights():
 # ================================================================
 
 def detect_market_trend(code="510300", ma_period=50):
-    """检测市场趋势。
-    返回: {trend: 'up'|'down'|'neutral', slope: 均线斜率(%), strength: 0-100}
+    """检测市场趋势 — 委托至 etf_signals.detect_trend。
+    返回: {trend: 'up'|'down'|'neutral', slope: 均线斜率(%), strength: 0-100, above_ma: bool}
     """
     data = _fetch_kline(code, ma_period + 10)
     if len(data) < ma_period:
-        return {"trend": "neutral", "slope": 0, "strength": 50}
-
-    # 计算MA
-    closes_all = [d["c"] for d in data]
-    ma_now = sum(closes_all[-ma_period:]) / ma_period
-
-    # MA斜率: (当前MA - 10天前MA) / 10天前MA
-    if len(closes_all) >= ma_period + 10:
-        ma_10d_ago = sum(closes_all[-(ma_period + 10):-10]) / ma_period
-    else:
-        ma_10d_ago = ma_now
-    slope = (ma_now - ma_10d_ago) / ma_10d_ago * 100 if ma_10d_ago > 0 else 0
-
-    # 价格在MA之上/之下
-    current = data[-1]["c"]
-    above_ma = current > ma_now
-
-    if slope > 1.0 and above_ma:
-        trend = "up"
-        strength = min(100, 50 + slope * 15)
-    elif slope < -1.0 and not above_ma:
-        trend = "down"
-        strength = min(100, 50 + abs(slope) * 15)
-    else:
-        trend = "neutral"
-        strength = 50
-
-    return {
-        "trend": trend,
-        "slope": round(slope, 2),
-        "strength": round(strength, 1),
-        "ma": round(ma_now, 3),
-        "current": current,
-        "above_ma": above_ma,
-    }
+        return {"trend": "neutral", "slope": 0, "strength": 50, "above_ma": True}
+    return detect_trend(data, len(data) - 1, ma_period)
 
 
 def get_dynamic_params(trend_info):

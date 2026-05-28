@@ -20,11 +20,11 @@ DEFAULT_SHARE_RAW = 0.12
 
 def fetch(code, limit=800):
     """腾讯K线数据，返回 [{date, o, c, h, l, v}, ...]"""
-    pfx = "sh" if code.startswith(("51", "56", "0")) else "sz"
     if code.startswith("sh") or code.startswith("sz"):
         pfx2, nc = code[:2], code[2:]
     else:
-        pfx2, nc = pfx, code
+        pfx2 = "sh" if code.startswith(("51", "56", "0")) else "sz"
+        nc = code
     url = f"http://web.ifzq.gtimg.cn/appstock/app/fqkline/get?param={pfx2}{nc},day,,,{limit},qfq"
     req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
     with urllib.request.urlopen(req, timeout=15, context=SSL_CTX) as r:
@@ -97,8 +97,8 @@ def compute_cp(records, day_i, idx_chg, share_raw=None):
     r = records[day_i]
     c, v = r["c"], r["v"]
     chg = (c - records[day_i - 1]["c"]) / records[day_i - 1]["c"] * 100
-    vols = [records[j]["v"] for j in range(max(0, day_i - 19), day_i + 1)]
-    ma20 = sum(vols) / len(vols)
+    vols = [records[j]["v"] for j in range(max(0, day_i - 20), day_i)]
+    ma20 = sum(vols) / len(vols) if vols else 1
     vr = v / ma20 if ma20 > 0 else 1
     v_raw = min(1, max(0, (vr - 0.7) / 1.3)) if vr >= 0.7 else 0
     rs, is_c = calc_rs(chg, idx_chg, vr)

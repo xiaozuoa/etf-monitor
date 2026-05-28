@@ -48,7 +48,7 @@ def send_email(analysis, is_post_market, trend, params, min_pct, consec_info):
     now = datetime.now()
 
     # 标题
-    high_n = sum(1 for a in alerts if a["composite_prob"] >= 60)
+    high_n = sum(1 for a in alerts if a["composite_prob"] >= 70)
     counter_n = sum(1 for a in alerts if a.get("is_counter_market"))
     t = trend["trend"]
     t_label = {"up": "🟢","down": "🔴"}.get(t, "🟡")
@@ -202,17 +202,18 @@ def run(is_post_market=None):
     resonance["triggered"] = dynamic_trig
     resonance["mid_count"] = len(dynamic_mid)
     resonance["etfs"] = dynamic_mid
-    resonance["high_count"] = sum(1 for r in dynamic_mid if r["composite_prob"] >= 60)
+    resonance["high_count"] = sum(1 for r in dynamic_mid if r["composite_prob"] >= 70)
 
     # 连日趋
-    consec_info = check_consecutive_days(resonance["mid_count"], resonance["high_count"])
+    consec_info = check_consecutive_days(resonance["mid_count"], resonance["high_count"],
+                                          resonance_min=params["resonance_min"])
     cons_days, is_campaign, boost = consec_info
     consec_info = {"consecutive": cons_days, "campaign": is_campaign, "boost": boost}
 
     # 打印
     print(f"  信号: 高{resonance['high_count']} 中{resonance['mid_count']} 触达:{'✅' if dynamic_trig else '❌'}")
     for r in sorted(results, key=lambda x: x["composite_prob"], reverse=True):
-        icon = "🔴" if r["composite_prob"] >= 60 else ("🟡" if r["composite_prob"] >= params["cp_threshold"] else "⚪")
+        icon = "🔴" if r["composite_prob"] >= 70 else ("🟡" if r["composite_prob"] >= params["cp_threshold"] else "⚪")
         counter = " ⚡抗跌" if r.get("is_counter_market") else ""
         print(f"  {icon} {r['code']} {r['name']:<14} CP={r['composite_prob']}%"
               f" (V{r['vol_prob']:.0f} D{r['dir_prob']:.0f}){counter}")
@@ -289,10 +290,11 @@ def record_position(resonance, params, trend):
                 positions = json.load(f)
         except: pass
 
-    # 标记已有持仓为已退出(同一批)
-    for p in positions:
+    # 标记最近一个未退出持仓为已退出(同一批替换)
+    for p in reversed(positions):
         if not p.get("exited"):
             p["exited"] = True
+            break
     positions.append(pos)
     with open(pos_path, 'w', encoding='utf-8') as f:
         json.dump(positions, f, ensure_ascii=False, indent=2)

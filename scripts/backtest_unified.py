@@ -4,8 +4,8 @@
 import os, sys, io, math
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from etf_engine import ETFS, calc_relative_strength
-from etf_signals import fetch, detect_trend, COMMISSION, SLIPPAGE, INITIAL
+from etf_engine import ETFS
+from etf_signals import fetch, detect_trend, calc_rs, COMMISSION, SLIPPAGE, INITIAL
 
 def get_cfg(t,a):
     if t=="up": return {"cp_threshold":45,"resonance_min":2,"hold_days":10,"allow_pyramiding":True}
@@ -160,7 +160,7 @@ def run_backtest(data_dict, cp_mode, sizing_mode, collector=None):
             vols=[recs[j]["v"] for j in range(max(0,day_i-19),day_i+1)]
             ma20=sum(vols)/len(vols); vr=v/ma20 if ma20>0 else 1
             v_raw=min(1,max(0,(vr-0.7)/1.3)) if vr>=0.7 else 0
-            rs,is_c=calc_relative_strength(chg,idx_chg,vr); d_raw=rs/100
+            rs,is_c=calc_rs(chg,idx_chg,vr); d_raw=rs/100
 
             cp = compute_cp_unified(v_raw, d_raw, code, date, collector or ShareSimulator(data_dict))
 
