@@ -39,18 +39,9 @@ ETFS = {
 }
 
 
-def align_data(data_dict):
-    """按日期对齐所有数据"""
-    all_dates = set()
-    for records in data_dict.values():
-        all_dates.update(r["date"] for r in records)
-    all_dates = sorted(all_dates)
-
-    aligned = {}
-    for code, records in data_dict.items():
-        date_map = {r["date"]: r for r in records}
-        aligned[code] = [date_map.get(d) for d in all_dates]
-    return all_dates, aligned
+# 注意: 此回测假设所有ETF有相同日期范围(均从fetch返回最新800天).
+# 若某ETF历史较短, records[day_i]可能对应不同日期, 但会被day_i>=len(records)跳过.
+# 如需严格对齐, 可使用 align_data() 生成统一日期轴(需配合None检查).
 
 
 def backtest(data_dict, use_resonance=True, cp_thresh=50, res_min=3, hold_days=3):

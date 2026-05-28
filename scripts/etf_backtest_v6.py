@@ -12,11 +12,10 @@ sys.path.insert(0, SCRIPT_DIR)
 from etf_engine import (ETFS, calc_atr,
                          get_dynamic_params,
                          get_min_position)
-from etf_signals import compute_cp, detect_trend, calc_rs
+from etf_signals import compute_cp, detect_trend, calc_rs, COMMISSION, SLIPPAGE, INITIAL
 
 SSL_CTX = ssl.create_default_context()
 SSL_CTX.check_hostname = False; SSL_CTX.verify_mode = ssl.CERT_NONE
-COMMISSION = 0.00025; SLIPPAGE = 0.0005; INITIAL = 100000
 
 
 def fetch(code, limit=800):
