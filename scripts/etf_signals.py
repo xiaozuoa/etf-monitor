@@ -103,4 +103,10 @@ def compute_cp(records, day_i, idx_chg, share_raw=None):
     v_raw = min(1, max(0, (vr - 0.7) / 1.3)) if vr >= 0.7 else 0
     rs, is_c = calc_rs(chg, idx_chg, vr)
     d_raw = rs / 100
-    return (v_raw * W_VOL + d_raw * W_DIR + share_raw * W_SHARE) * 100, chg, vr, is_c, c
+    # 动态权重: 跌市中方向因子翻倍(逆势才是真国家队), 量能降低(跌市放量可能是抛售)
+    if idx_chg < 0:
+        w_vol, w_dir = 0.35, 0.35
+    else:
+        w_vol, w_dir = W_VOL, W_DIR
+
+    return (v_raw * w_vol + d_raw * w_dir + share_raw * W_SHARE) * 100, chg, vr, is_c, c
