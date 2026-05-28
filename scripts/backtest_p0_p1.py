@@ -54,7 +54,11 @@ class CPSystem:
             if dp>0.5: share_raw = min(1.0, 0.12+dp*0.06)
             elif dp<-1: share_raw = max(0.0, 0.12+dp*0.03)
             share_raw = max(0, min(1, share_raw))
-        cp = (v_raw*W_VOL + d_raw*W_DIR + share_raw*W_SHARE)*100
+        if idx_chg < 0:
+            w_vol, w_dir = 0.35, 0.35
+        else:
+            w_vol, w_dir = W_VOL, W_DIR
+        cp = (v_raw*w_vol + d_raw*w_dir + share_raw*W_SHARE)*100
 
         return cp, chg, vr, is_c, c
 

@@ -19,7 +19,7 @@ def get_cfg(t):
 # ==========================================
 from etf_signals import W_VOL, W_DIR, W_SHARE, DEFAULT_SHARE_RAW
 
-def compute_cp_unified(v_raw, d_raw, code=None, date=None, collector=None):
+def compute_cp_unified(v_raw, d_raw, idx_chg=0, code=None, date=None, collector=None):
     """统一CP: 权重 50/20/30, 可选份额代理"""
     share_raw = DEFAULT_SHARE_RAW
     if collector is not None and code is not None and date is not None:
@@ -29,7 +29,11 @@ def compute_cp_unified(v_raw, d_raw, code=None, date=None, collector=None):
             if dp>0.5:   share_raw = min(1.0, 0.12+dp*0.06)
             elif dp<-1:   share_raw = max(0.0, 0.12+dp*0.03)
             share_raw = max(0,min(1,share_raw))
-    return (v_raw*W_VOL + d_raw*W_DIR + share_raw*W_SHARE)*100
+    if idx_chg < 0:
+        w_vol, w_dir = 0.35, 0.35
+    else:
+        w_vol, w_dir = W_VOL, W_DIR
+    return (v_raw*w_vol + d_raw*w_dir + share_raw*W_SHARE)*100
 
 # ==========================================
 # 份额数据模拟器 (基于K线模式推断资金流向)
@@ -164,7 +168,7 @@ def run_backtest(data_dict, sizing_mode, collector=None):
             v_raw=min(1,max(0,(vr-0.7)/1.3)) if vr>=0.7 else 0
             rs,is_c=calc_rs(chg,idx_chg,vr); d_raw=rs/100
 
-            cp = compute_cp_unified(v_raw, d_raw, code, date, collector or ShareSimulator(data_dict))
+            cp = compute_cp_unified(v_raw, d_raw, idx_chg, code, date, collector or ShareSimulator(data_dict))
 
             if cp>=cfg["cp_threshold"]:
                 signals.append({"code":code,"cp":cp,"is_counter":is_c})

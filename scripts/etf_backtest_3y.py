@@ -102,7 +102,11 @@ def backtest(data_dict, use_resonance=True, cp_thresh=50, res_min=3, hold_days=3
             rs, is_c = calc_rs(chg, idx_chg, vr)
             d_raw = rs / 100
             s_raw = 0.12
-            cp = (v_raw * 0.50 + d_raw * 0.20 + s_raw * 0.30) * 100
+            if idx_chg < 0:
+                w_vol, w_dir = 0.35, 0.35
+            else:
+                w_vol, w_dir = etf_signals.W_VOL, etf_signals.W_DIR
+            cp = (v_raw * w_vol + d_raw * w_dir + s_raw * etf_signals.W_SHARE) * 100
 
             if cp >= cp_thresh:
                 signals.append({"code": code, "cp": cp, "chg": chg, "vr": vr,
