@@ -687,11 +687,11 @@ def gen_html(all_hist, latest_map, idx_300_data, shares_data, target_date):
   <td style="white-space:nowrap">{si} <b>{info["n"]}</b></td>
   <td style="color:#64748b">{code}</td>
   <td style="color:{chc}">{chg:+.2f}%</td>
-  <td>{p["v"]:.0f}万</td>
-  <td>{p["vma"]:.0f}万</td>
-  <td style="font-weight:600;color:#cbd5e1">{p["vr"]:.2f}x</td>{sh_html}
-  <td style="color:#94a3b8">{p["vp"]:.0f}%</td>
-  <td style="color:#94a3b8">{p["dp"]:.0f}%</td>
+  <td>{(p["v"] if p else 0):.0f}万</td>
+  <td>{(p["vma"] if p else 0):.0f}万</td>
+  <td style="font-weight:600;color:#cbd5e1">{(p["vr"] if p else 0):.2f}x</td>{sh_html}
+  <td style="color:#94a3b8">{(p["vp"] if p else 0):.0f}%</td>
+  <td style="color:#94a3b8">{(p["dp"] if p else 0):.0f}%</td>
   <td style="color:{sp_col}">{sp_display}</td>
   <td style="font-weight:700;font-size:13px;color:{sc};white-space:nowrap">{cp:.0f}%{tag_html}</td>
 </tr>'''
@@ -1137,7 +1137,7 @@ def main(target_date=None, do_send=False, record_only=False):
         print("  ℹ️ 无多ETF同步信号")
 
     if date_sig:
-        actual_date = target_date if target_date else list(date_sig.keys())[-1]
+        actual_date = target_date if target_date else sorted(date_sig.keys())[-1]
     elif target_date:
         actual_date = target_date
     else:
