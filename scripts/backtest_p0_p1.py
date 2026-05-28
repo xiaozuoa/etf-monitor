@@ -7,12 +7,12 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from etf_engine import ETFS
 from etf_signals import fetch, detect_trend, calc_rs, COMMISSION, SLIPPAGE, INITIAL, W_VOL, W_DIR, W_SHARE, DEFAULT_SHARE_RAW
 
-def get_cfg(t,a):
-    if t=="up": return {"cp_threshold":45,"resonance_min":2,"hold_days":10,"allow_pyramiding":True}
-    elif t=="down": return {"cp_threshold":50,"resonance_min":4,"hold_days":4,"allow_pyramiding":False}
+def get_cfg(t,                                                     a):
+    """2状态趋势配置 — 与生产 etf_engine.get_dynamic_params 一致 (2026-05-28简化)"""
+    if t == "up":
+        return {"cp_threshold": 50, "resonance_min": 2, "hold_days": 7, "allow_pyramiding": True}
     else:
-        if a: return {"cp_threshold":50,"resonance_min":2,"hold_days":7,"allow_pyramiding":False}
-        else: return {"cp_threshold":50,"resonance_min":5,"hold_days":4,"allow_pyramiding":False}
+        return {"cp_threshold": 50, "resonance_min": 3, "hold_days": 5, "allow_pyramiding": False}
 
 # ---- ATR 计算 ----
 def calc_atr_live(recs, day_i, period=14):

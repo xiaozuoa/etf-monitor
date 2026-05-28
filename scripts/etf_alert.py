@@ -68,8 +68,8 @@ def send_email(analysis, is_post_market, trend, params, min_pct, consec_info):
     base_pct = int(min_pct * 100)
     sig_pct = 50 if high_n >= 2 else 40
     if params.get("allow_pyramiding"): sig_pct = 60
-    if consec_info["consecutive"] >= 2: sig_pct = min(80, sig_pct + 20)
-    total_pct = min(100, base_pct + sig_pct)
+    if consec_info["consecutive"] >= 2: sig_pct = min(65, sig_pct + 15)
+    total_pct = min(75, base_pct + sig_pct)
 
     exit_date = (now + timedelta(days=params['hold_days'])).strftime('%m月%d日')
     buy_date = (now + timedelta(days=1)).strftime('%m月%d日')

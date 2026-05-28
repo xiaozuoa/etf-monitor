@@ -42,8 +42,8 @@ def detect_trend(ref, day_i, ma_period=50):
     需要 ma_period+10 个数据点 (60天窗口)。
     """
     need = ma_period + 10
-    if day_i < need:
-        return {"trend": "neutral", "slope": 0, "strength": 50, "above_ma": True}
+    if day_i < need - 1:
+        return {"trend": "neutral", "slope": 0, "strength": 50, "above_ma": False}
 
     closes_all = [d["c"] for d in ref[day_i - need + 1:day_i + 1]]
     ma_now = sum(closes_all[-ma_period:]) / ma_period

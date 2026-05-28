@@ -524,13 +524,6 @@ def full_analysis(codes=None, use_realtime=False, use_shares=False, weights=None
         vol_ma20 = sum(vols) / len(vols) if vols else 1
         vol_ratio = v / vol_ma20 if vol_ma20 > 0 else 1
 
-        # === 量能因子 (原始值 0-1) ===
-        vol_raw = min(1.0, max(0.0, (vol_ratio - 0.7) / 1.3)) if vol_ratio >= 0.7 else 0.0
-
-        # === 相对强弱因子 (原始值 0-1) — 替代旧的方向因子 ===
-        rs_score, is_counter = calc_rs(change_pct, idx_chg, vol_ratio)
-        dir_raw = rs_score / 100.0
-
         # === 份额因子 (原始值 0-1) ===
         share_raw = 0.12  # 默认基准
         today_delta = None
@@ -550,10 +543,12 @@ def full_analysis(codes=None, use_realtime=False, use_shares=False, weights=None
                 share_raw = max(0.0, 0.12 + delta_pct * 0.03)  # 大额赎回→减分
             share_raw = max(0.0, min(1.0, share_raw))
 
-        # === 综合概率 ===
-        cp = (vol_raw * weights["vol"] + dir_raw * weights["dir"] + share_raw * weights["share"]) * 100
+        # === 综合概率 — 使用共享模块 compute_cp, 消除公式漂移 ===
+        cp, _, _, is_counter, _ = compute_cp(data, len(data) - 1, idx_chg, share_raw)
 
-        cp = max(0, min(100, cp))
+        # 子因子展示分量 (与 compute_cp 内部公式一致)
+        vol_raw = min(1.0, max(0.0, (vol_ratio - 0.7) / 1.3)) if vol_ratio >= 0.7 else 0.0
+        dir_raw = calc_rs(change_pct, idx_chg, vol_ratio)[0] / 100.0
 
         signal = "HIGH" if cp >= 70 else ("MID" if cp >= 50 else "LOW")
 
@@ -651,9 +646,9 @@ def detect_market_trend(code="510300", ma_period=50):
     """检测市场趋势 — 委托至 etf_signals.detect_trend。
     返回: {trend: 'up'|'down'|'neutral', slope: 均线斜率(%), strength: 0-100, above_ma: bool}
     """
-    data = _fetch_kline(code, ma_period + 10)
+    data = _fetch_kline(code, ma_period + 11)
     if len(data) < ma_period:
-        return {"trend": "neutral", "slope": 0, "strength": 50, "above_ma": True}
+        return {"trend": "neutral", "slope": 0, "strength": 50, "above_ma": False}
     return detect_trend(data, len(data) - 1, ma_period)
 
 

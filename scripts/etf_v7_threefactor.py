@@ -1133,7 +1133,12 @@ def main(target_date=None, do_send=False, record_only=False):
     else:
         print("  ℹ️ 无多ETF同步信号")
 
-    actual_date = target_date if target_date else list(date_sig.keys())[-1]
+    if date_sig:
+        actual_date = target_date if target_date else list(date_sig.keys())[-1]
+    elif target_date:
+        actual_date = target_date
+    else:
+        actual_date = datetime.now().strftime("%Y-%m-%d")
 
     # 计算当日沪深300涨跌（用于DB记录）
     idx_gain = 0
