@@ -667,12 +667,18 @@ def get_dynamic_params(trend_info):
     """
     t = trend_info["trend"]
 
-    if t == "up":
-        return {"cp_threshold": 50, "resonance_min": 2, "hold_days": 7,
+    if t == "up" and trend_info.get("strength", 50) >= 70:
+        return {"cp_threshold": 50, "resonance_min": 2, "hold_days": 12,
+                "allow_pyramiding": True, "label": "强上升"}
+    elif t == "up":
+        return {"cp_threshold": 50, "resonance_min": 2, "hold_days": 9,
                 "allow_pyramiding": True, "label": "上升"}
+    elif t == "down":
+        return {"cp_threshold": 50, "resonance_min": 3, "hold_days": 4,
+                "allow_pyramiding": False, "label": "下跌(快出)"}
     else:
-        return {"cp_threshold": 50, "resonance_min": 3, "hold_days": 5,
-                "allow_pyramiding": False, "label": "非上升(防御)"}
+        return {"cp_threshold": 50, "resonance_min": 3, "hold_days": 6,
+                "allow_pyramiding": False, "label": "中性"}
 
 
 def get_min_position(trend_info):

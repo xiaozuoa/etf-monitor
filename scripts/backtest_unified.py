@@ -10,9 +10,9 @@ from etf_signals import fetch, detect_trend, calc_rs, COMMISSION, SLIPPAGE, INIT
 def get_cfg(t):
     """2状态趋势配置 — 与生产 etf_engine.get_dynamic_params 一致 (2026-05-28简化)"""
     if t == "up":
-        return {"cp_threshold": 50, "resonance_min": 2, "hold_days": 7, "allow_pyramiding": True}
+        return {"cp_threshold": 50, "resonance_min": 2, "hold_days": 9, "allow_pyramiding": True}
     else:
-        return {"cp_threshold": 50, "resonance_min": 3, "hold_days": 5, "allow_pyramiding": False}
+        return {"cp_threshold": 50, "resonance_min": 3, "hold_days": 6, "allow_pyramiding": False}
 
 # ==========================================
 # CP 计算模式 (统一版)

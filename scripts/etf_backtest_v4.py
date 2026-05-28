@@ -71,13 +71,13 @@ def _backtest_core(data_dict, use_dynamic=False, use_trailing=False, hold_days=3
                 trend_info = detect_trend(ref_records, day_i)
                 if trend_info["trend"] == "up":
                     dynamic = {"cp_threshold": 45, "resonance_min": 2,
-                               "hold_days": 6, "allow_pyramiding": True}
+                               "hold_days": 9, "allow_pyramiding": True}
                 elif trend_info["trend"] == "down":
                     dynamic = {"cp_threshold": 50, "resonance_min": 3,
-                               "hold_days": 3, "allow_pyramiding": False}
+                               "hold_days": 4, "allow_pyramiding": False}
                 else:
                     dynamic = {"cp_threshold": 50, "resonance_min": 3,
-                               "hold_days": 3, "allow_pyramiding": False}
+                               "hold_days": 6, "allow_pyramiding": False}
             else:
                 dynamic = {"cp_threshold": 50, "resonance_min": 3,
                            "hold_days": 3, "allow_pyramiding": False}
