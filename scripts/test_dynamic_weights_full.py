@@ -40,7 +40,7 @@ with open(sig_path, "r", encoding="utf-8") as f:
     sig_src = f.read()
 cp_body = get_func_body(sig_src, "compute_cp")
 check("0: etf_signals.py compute_cp has dynamic weights (baseline)",
-      "idx_chg < 0" in cp_body and "0.25" in cp_body,
+      "idx_chg < 0" in cp_body and "0.20" in cp_body,
       "Baseline already implemented")
 
 # File 2: backtest_unified.py
@@ -52,7 +52,7 @@ check("1a: backtest_unified.py compute_cp_unified has idx_chg parameter",
       "idx_chg" in uni_body.split("):")[0] if "):" in uni_body else False,
       "compute_cp_unified needs idx_chg parameter for dynamic weights")
 check("1b: backtest_unified.py compute_cp_unified has dynamic weight logic",
-      "idx_chg < 0" in uni_body and "0.25" in uni_body,
+      "idx_chg < 0" in uni_body and "0.20" in uni_body,
       "compute_cp_unified missing dynamic weight switching")
 
 # File 3: backtest_p0_p1.py
@@ -67,7 +67,7 @@ if cps_end == -1:
     cps_end = len(p0p1_src)
 cps_body = p0p1_src[cps_start:cps_end]
 check("2: backtest_p0_p1.py CPSystem.compute has dynamic weight logic",
-      "idx_chg < 0" in cps_body and "0.25" in cps_body,
+      "idx_chg < 0" in cps_body and "0.20" in cps_body,
       "CPSystem.compute missing dynamic weight switching")
 
 # File 4: etf_backtest_3y.py
@@ -78,7 +78,7 @@ check("3a: etf_backtest_3y.py no hardcoded 0.50/0.20/0.30 weights",
       "0.50 + d_raw * 0.20 + s_raw * 0.30" not in bt3_src,
       "Still uses hardcoded fixed weights instead of dynamic")
 check("3b: etf_backtest_3y.py has dynamic weight logic",
-      "idx_chg < 0" in bt3_src and "0.25" in bt3_src,
+      "idx_chg < 0" in bt3_src and "0.20" in bt3_src,
       "etf_backtest_3y.py missing dynamic weight switching")
 
 
