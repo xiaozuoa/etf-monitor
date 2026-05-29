@@ -58,7 +58,7 @@ except ImportError:
     print("⚠️ etf_data_store.py 未找到，本地数据存储功能不可用")
 
 try:
-    from etf_signals import compute_cp
+    from etf_signals import compute_cp, calc_rs
     CP_UNIFIED = True
 except ImportError:
     CP_UNIFIED = False
@@ -489,8 +489,11 @@ def analyze_all(data, idx_d, shares_map, days=35, code=None):
             if i >= 6 and aligned[i - 5] is not None:
                 j5 = aligned[i - 5]
                 t5i = idx_d[j5]["c"] > 0 and (idx_d[ii]["c"] - idx_d[j5]["c"]) / idx_d[j5]["c"] * 100 or 0
-        vp = vprob(vr)
-        dp = dprob(chg, t5, round(t5i, 2), vr, idchg)
+        # vp/dp改用engine等效值(与CP公式内部一致)
+        v_raw_display = min(1, max(0, (vr - 0.7) / 1.3)) if vr >= 0.7 else 0
+        rs_eng, _ = calc_rs(chg, idchg, vr)
+        vp = round(v_raw_display * 100, 1)
+        dp = round(rs_eng / 100 * 100, 1)
 
         # 三因子：份额概率
         sp = None
