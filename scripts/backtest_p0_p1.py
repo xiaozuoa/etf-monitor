@@ -50,12 +50,12 @@ class CPSystem:
         share_raw = DEFAULT_SHARE_RAW
         delta = self._get_share_delta(code, ref[day_i]["date"])
         if delta is not None:
-            dp = delta*0.7
+            dp = delta
             if dp>0.5: share_raw = min(1.0, 0.12+dp*0.06)
             elif dp<-1: share_raw = max(0.0, 0.12+dp*0.03)
             share_raw = max(0, min(1, share_raw))
         if idx_chg < 0:
-            w_vol, w_dir = 0.55, 0.25
+            w_vol, w_dir = 0.60, 0.20
         else:
             w_vol, w_dir = W_VOL, W_DIR
         cp = (v_raw*w_vol + d_raw*w_dir + share_raw*W_SHARE)*100

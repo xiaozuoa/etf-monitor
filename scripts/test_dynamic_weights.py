@@ -39,18 +39,18 @@ check("1a: compute_cp checks idx_chg < 0 for weight switching",
       "idx_chg < 0" in cp_body,
       "compute_cp should check market direction to switch weights")
 
-# Check 2: Contains the new weight value 0.55 for down market
-check("1b: Down-market uses WF-optimal weights 0.55/0.25",
-      "0.55" in cp_body and "0.25" in cp_body,
-      "Down market should use WF-optimal: w_vol=0.55, w_dir=0.25")
+# Check 2: Contains the new weight value 0.60/0.20 for down market (2026-05-29 grid search optimal)
+check("1b: Down-market uses WF-optimal weights 0.60/0.20",
+      "0.60" in cp_body and "0.20" in cp_body,
+      "Down market should use WF-optimal: w_vol=0.60, w_dir=0.20")
 
 # Check 3: Contains W_VOL reference for up-market (keeping original constant)
-check("1c: Up-market still references W_VOL (keeps original 0.50)",
+check("1c: Up-market still references W_VOL (keeps original 0.45)",
       "W_VOL" in cp_body,
       "Up market should use original W_VOL constant")
 
 # Check 4: Contains W_DIR reference for up-market
-check("1d: Up-market still references W_DIR (keeps original 0.20)",
+check("1d: Up-market still references W_DIR (keeps original 0.35)",
       "W_DIR" in cp_body,
       "Up market should use original W_DIR constant")
 

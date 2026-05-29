@@ -12,8 +12,8 @@ SLIPPAGE = 0.0005
 INITIAL = 100000
 
 # CP权重 — P0统一版 (50/20/30)
-W_VOL = 0.60
-W_DIR = 0.20
+W_VOL = 0.45
+W_DIR = 0.35
 W_SHARE = 0.20
 DEFAULT_SHARE_RAW = 0.12
 
@@ -105,7 +105,7 @@ def compute_cp(records, day_i, idx_chg, share_raw=None):
     d_raw = rs / 100
     # 动态权重: 跌市中方向因子翻倍(逆势才是真国家队), 量能降低(跌市放量可能是抛售)
     if idx_chg < 0:
-        w_vol, w_dir = 0.55, 0.25
+        w_vol, w_dir = 0.60, 0.20
     else:
         w_vol, w_dir = W_VOL, W_DIR
 
