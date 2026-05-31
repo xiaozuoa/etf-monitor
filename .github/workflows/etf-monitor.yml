@@ -41,7 +41,19 @@ jobs:
       - name: Determine mode
         id: mode
         run: |
-          echo "mode=postmarket" >> $GITHUB_OUTPUT
+          if [ "${{ github.event.inputs.mode }}" = "intraday" ]; then
+            echo "mode=intraday" >> $GITHUB_OUTPUT
+          elif [ "${{ github.event.inputs.mode }}" = "postmarket" ]; then
+            echo "mode=postmarket" >> $GITHUB_OUTPUT
+          else
+            # 自动判断: schedule cron 触发时根据时间判断
+            BJ_HOUR=$(TZ=Asia/Shanghai date +%H)
+            if [ "$BJ_HOUR" -ge 19 ]; then
+              echo "mode=postmarket" >> $GITHUB_OUTPUT
+            else
+              echo "mode=intraday" >> $GITHUB_OUTPUT
+            fi
+          fi
           echo "Beijing hour: $(TZ=Asia/Shanghai date +%H:%M)"
 
       - name: Run monitor
