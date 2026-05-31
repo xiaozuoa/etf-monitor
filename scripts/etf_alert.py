@@ -4,6 +4,7 @@
 import os, sys, io, smtplib, json
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
+from email.header import Header
 from datetime import datetime, timedelta
 
 if hasattr(sys.stdout, 'buffer') and sys.stdout.encoding != 'utf-8':
@@ -25,7 +26,7 @@ def load_config():
     if os.path.exists(CONFIG_FILE):
         try:
             with open(CONFIG_FILE, 'r', encoding='utf-8') as f: cfg = json.load(f)
-        except: pass
+        except Exception: pass
     return {
         "email_from": os.environ.get("ETF_EMAIL_FROM") or cfg.get("email_from", ""),
         "email_to":   os.environ.get("ETF_EMAIL_TO")   or cfg.get("email_to", ""),
@@ -55,6 +56,8 @@ def send_email(analysis, is_post_market, trend, params, min_pct, consec_info):
 
     if counter_n >= 3 and t == "down":
         tag = "国家队大力进场"
+    elif counter_n >= 2 and t == "down":
+        tag = "建议关注"
     elif high_n >= 2:
         tag = "建议买入"
     elif len(alerts) >= 3:
@@ -62,9 +65,10 @@ def send_email(analysis, is_post_market, trend, params, min_pct, consec_info):
     else:
         tag = "信号提醒"
 
-    subject = f"{t_label} {tag} — {now.strftime('%m-%d %H:%M')}"
+    subject_raw = f"{t_label} {tag} — {now.strftime('%m-%d %H:%M')}"
+    subject = Header(subject_raw, "utf-8").encode()
 
-    # ===== 新手友好版正文 =====
+    # ===== 新邮件格式 =====
     base_pct = int(min_pct * 100)
     sig_pct = 50 if high_n >= 2 else 40
     if params.get("allow_pyramiding"): sig_pct = 60
@@ -74,74 +78,39 @@ def send_email(analysis, is_post_market, trend, params, min_pct, consec_info):
     exit_date = (now + timedelta(days=params['hold_days'])).strftime('%m月%d日')
     buy_date = (now + timedelta(days=1)).strftime('%m月%d日')
 
-    # 信号强度等级
     if high_n >= 3: strength = "强 ⭐⭐⭐"
     elif high_n >= 1: strength = "中 ⭐⭐"
     else: strength = "弱 ⭐"
 
-    # 一句话总结
     market_words = {"up": "上涨","down": "下跌"}.get(t, "震荡")
-    buy_etf_names = "、".join(a['name'][:4] for a in sorted(alerts, key=lambda x: x['composite_prob'], reverse=True)[:4])
+    buy_list = sorted(alerts, key=lambda x: x["composite_prob"], reverse=True)[:5]
+    n_buy = len(buy_list)
 
     lines = []
     lines.append(f"⏰ {now.strftime('%m月%d日 %H:%M')}")
     lines.append("")
-    lines.append("━━━━━━━━━━━━━━━━━━━━━━━━")
-    lines.append(f"  一句话: 明天{buy_date}开盘买入以下ETF, 拿到{exit_date}左右卖出")
-    lines.append("━━━━━━━━━━━━━━━━━━━━━━━━")
+    lines.append("══════════════════════════════════")
+    lines.append(f"  ETF信号提醒  {now.strftime('%m月%d日 %H:%M')}")
+    lines.append("══════════════════════════════════")
     lines.append("")
-    lines.append(f"📌 市场状态: {market_words}趋势 | 信号强度: {strength}")
-    lines.append(f"💰 用多少钱: 总资金的 {total_pct}% (约{total_pct/100*10:.0f}-{total_pct/100*10+2:.0f}成仓)")
+    lines.append(f"市场: {market_words}趋势  信号强度: {strength}")
+    lines.append(f"总仓位: {total_pct}% (每只{total_pct/max(n_buy, 1):.0f}%)")
     lines.append("")
-    lines.append("━━━━━━━━━━━━━━━━━━━━━━━━")
-    lines.append("  买这些 (明天开盘价买入, 金额平均分配)")
-    lines.append("━━━━━━━━━━━━━━━━━━━━━━━━")
-    buy_list = sorted(alerts, key=lambda x: x["composite_prob"], reverse=True)[:5]
-    n_buy = len(buy_list)
+    lines.append(f"【买入清单 — 明天{buy_date}开盘买入】")
+    lines.append("")
     for i, a in enumerate(buy_list, 1):
         atr = atrs.get(a['code'], {})
         sl_pct = atr.get("stop_loss_pct", 3)
         sl_price = round(a['close'] * (1 - sl_pct/100), 3)
-        lines.append(f"  {i}. {a['code']} {a['name']}")
-        lines.append(f"     现价约 {a['close']:.3f}元 | 亏{sl_pct}%就卖=跌破{sl_price}元")
+        name_short = a['name'][:12] if len(a['name']) > 12 else a['name']
+        lines.append(f"  {i}. {a['code']} {name_short:<14} {a['close']:.3f}元  CP:{a['composite_prob']}  止损:{sl_price}")
     lines.append("")
-    lines.append(f"  怎么买: 明天上午9:30开盘后, 打开中山证券APP")
-    lines.append(f"  (以上价格为今日收盘价, 实际以明日开盘价为准)")
-    lines.append(f"  搜索上面的代码, 每个买{total_pct/n_buy:.0f}%的钱")
+    lines.append("【卖出规则】")
+    lines.append(f"  持有到期: {exit_date}")
+    lines.append(f"  止盈: 任一涨超5% → 卖它")
+    lines.append(f"  止损: 任一跌超3% → 卖它")
     lines.append("")
-    lines.append("━━━━━━━━━━━━━━━━━━━━━━━━")
-    lines.append("  什么时候卖")
-    lines.append("━━━━━━━━━━━━━━━━━━━━━━━━")
-    lines.append(f"  ① 正常情况: 拿到 {exit_date} 左右, 系统会发卖出提醒")
-    lines.append(f"  ② 赚够了: 任意一只涨超5%, 先把那只有盈利的卖了")
-    lines.append(f"  ③ 亏太多: 任意一只亏超3%, 立刻卖掉它止损")
-    lines.append(f"  ④ 别贪: 收到卖出邮件就操作, 不要犹豫")
-    lines.append("")
-    lines.append("━━━━━━━━━━━━━━━━━━━━━━━━")
-    lines.append("  为什么发这封邮件")
-    lines.append("━━━━━━━━━━━━━━━━━━━━━━━━")
-    reason_parts = [f"检测到{res['mid_count']}只ETF同时出现异常信号"]
-    if counter_n >= 2:
-        reason_parts.append("多只ETF在大盘下跌时逆势上涨(疑似国家队进场)")
-    elif t == "up":
-        reason_parts.append("市场处于上升趋势, 顺势加仓")
-    elif macro["decline_days"] >= 3:
-        reason_parts.append(f"市场已连续下跌{macro['decline_days']}天, 国家队可能出手维稳")
-    reason_parts.append(f"历史回测类似信号的胜率约55-60%")
-    for rp in reason_parts:
-        lines.append(f"  · {rp}")
-    if consec_info["consecutive"] >= 2:
-        lines.append(f"  ⚡ 这是连续第{consec_info['consecutive']}天出现信号, 可靠性更高")
-    lines.append("")
-    lines.append("━━━━━━━━━━━━━━━━━━━━━━━━")
-    lines.append("  风险提示")
-    lines.append("━━━━━━━━━━━━━━━━━━━━━━━━")
-    lines.append("  ⚠ 这个策略长期能赚钱, 但不保证每次都赚")
-    lines.append("  ⚠ 历史最大回撤约7% (10万本金最多亏7000)")
-    lines.append("  ⚠ 不要把所有钱都放进来, 用闲置资金")
-    lines.append("  ⚠ 如果看不懂或者不确定, 宁可不动")
-    lines.append("")
-    lines.append(f"📬 下次检查: {'明天盘后' if is_post_market else '今晚19:00'} | 自动发送, 无需回复")
+    lines.append(f"下次检查: {'明天盘后' if is_post_market else '今晚19:00'} ｜ 自动发送")
 
     body = "\n".join(lines)
 
@@ -165,7 +134,7 @@ def send_email(analysis, is_post_market, trend, params, min_pct, consec_info):
             try:
                 with open(tracker_path, 'r', encoding='utf-8') as _f:
                     tracker = _json.load(_f)
-            except: pass
+            except Exception: pass
         today = datetime.now().strftime("%Y-%m-%d")
         if not any(t.get("date") == today for t in tracker):
             tracker.append({
@@ -266,7 +235,7 @@ def run(is_post_market=None):
     if os.path.exists(log_path):
         try:
             with open(log_path) as f: log = json.load(f)
-        except: pass
+        except Exception: pass
     last = log.get("last_sent", "")
     if last:
         parts = last.split("_")
@@ -275,7 +244,7 @@ def run(is_post_market=None):
                 if (datetime.now() - datetime.fromisoformat(parts[1])).total_seconds() < 7200:
                     print(f"  2h内已发送")
                     return
-            except: pass
+            except Exception: pass
 
     print(f"  🚨 发送...")
     sent = send_email(analysis, is_post_market=True, trend=trend, params=params,
@@ -313,13 +282,14 @@ def record_position(resonance, params, trend):
         try:
             with open(pos_path, 'r', encoding='utf-8') as f:
                 positions = json.load(f)
-        except: pass
+        except Exception: pass
 
-    # 标记最近一个未退出持仓为已退出(同一批替换)
-    for p in reversed(positions):
-        if not p.get("exited"):
-            p["exited"] = True
-            break
+    # 非叠仓模式下，标记最近一个未退出持仓为已退出
+    if not params.get("allow_pyramiding"):
+        for p in reversed(positions):
+            if not p.get("exited"):
+                p["exited"] = True
+                break
     positions.append(pos)
     with open(pos_path, 'w', encoding='utf-8') as f:
         json.dump(positions, f, ensure_ascii=False, indent=2)
@@ -335,7 +305,7 @@ def check_sell_reminder():
     try:
         with open(pos_path, 'r', encoding='utf-8') as f:
             positions = json.load(f)
-    except:
+    except Exception:
         return None
 
     now = datetime.now()
@@ -378,7 +348,7 @@ def check_sell_reminder():
                             return {"reason": f"{etf['code']} 止盈(+{pnl:.1f}%)", "position": pos}
                         if pnl <= -3.0:
                             return {"reason": f"{etf['code']} 止损({pnl:.1f}%)", "position": pos}
-                except:
+                except Exception:
                     pass
 
     return None
@@ -444,7 +414,7 @@ def send_sell_email(sell_info):
             try:
                 with open(pos_path, 'r', encoding='utf-8') as f:
                     all_positions = json.load(f)
-            except: pass
+            except Exception: pass
         for i, p in enumerate(all_positions):
             if p.get("entry_time") == pos.get("entry_time"):
                 all_positions[i] = pos  # 更新退出状态
@@ -471,7 +441,7 @@ def check_and_send_sell():
                 last_dt = datetime.fromisoformat(last_sell)
                 if (datetime.now() - last_dt).total_seconds() < 43200:  # 12h
                     return False
-        except: pass
+        except Exception: pass
 
     sell_info = check_sell_reminder()
     if sell_info:

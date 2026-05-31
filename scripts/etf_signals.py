@@ -11,7 +11,7 @@ COMMISSION = 0.00025
 SLIPPAGE = 0.0005
 INITIAL = 100000
 
-# CP权重 — P0统一版 (50/20/30)
+# CP权重 — P0统一版 (45/35/20)
 W_VOL = 0.45
 W_DIR = 0.35
 W_SHARE = 0.20
@@ -26,14 +26,18 @@ def fetch(code, limit=800):
         pfx2 = "sh" if code.startswith(("51", "56", "0")) else "sz"
         nc = code
     url = f"http://web.ifzq.gtimg.cn/appstock/app/fqkline/get?param={pfx2}{nc},day,,,{limit},qfq"
-    req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
-    with urllib.request.urlopen(req, timeout=15, context=SSL_CTX) as r:
-        d = json.loads(r.read().decode("utf-8"))
-    k = d.get("data", {}).get(f"{pfx2}{nc}", {}).get("qfqday", []) or \
-        d.get("data", {}).get(f"{pfx2}{nc}", {}).get("day", [])
-    return [{"date": r[0], "o": float(r[1]), "c": float(r[2]),
-             "h": float(r[3]), "l": float(r[4]), "v": float(r[5])}
-            for r in k if len(r) >= 6 and r[0]]
+    try:
+        req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+        with urllib.request.urlopen(req, timeout=15, context=SSL_CTX) as r:
+            d = json.loads(r.read().decode("utf-8"))
+        k = d.get("data", {}).get(f"{pfx2}{nc}", {}).get("qfqday", []) or \
+            d.get("data", {}).get(f"{pfx2}{nc}", {}).get("day", [])
+        return [{"date": r[0], "o": float(r[1]), "c": float(r[2]),
+                 "h": float(r[3]), "l": float(r[4]), "v": float(r[5])}
+                for r in k if len(r) >= 6 and r[0]]
+    except Exception as e:
+        print(f"  fetch({code}) error: {e}")
+        return []
 
 
 def detect_trend(ref, day_i, ma_period=50):
@@ -103,7 +107,7 @@ def compute_cp(records, day_i, idx_chg, share_raw=None):
     v_raw = min(1, max(0, (vr - 0.7) / 1.3)) if vr >= 0.7 else 0
     rs, is_c = calc_rs(chg, idx_chg, vr)
     d_raw = rs / 100
-    # 动态权重: 跌市中方向因子翻倍(逆势才是真国家队), 量能降低(跌市放量可能是抛售)
+    # 动态权重: 跌市中量能升权(抛售时需更大确认), 方向降权(逆势信号筛选更严)
     if idx_chg < 0:
         w_vol, w_dir = 0.60, 0.20
     else:

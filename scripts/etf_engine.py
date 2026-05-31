@@ -68,7 +68,7 @@ def fetch_realtime(codes=None):
         req = urllib.request.Request(url, headers={"Referer": "https://finance.sina.com.cn"})
         with urllib.request.urlopen(req, timeout=10, context=ssl_ctx) as r:
             raw = r.read().decode("gbk")
-    except:
+    except Exception:
         return {}
 
     results = {}
@@ -149,7 +149,7 @@ def fetch_shares_confirmation():
                 if code in ETFS:
                     shares_yi = float(row.get("基金份额", 0)) / 1e8
                     shares[code] = {"shares_yi": shares_yi, "source": "szse"}
-    except:
+    except Exception:
         pass
 
     if not shares:
@@ -169,7 +169,7 @@ def fetch_shares_confirmation():
                         delta = shares[code]["shares_yi"] - prev_shares
                         shares[code]["delta_yi"] = round(delta, 4)
                         shares[code]["delta_pct"] = round(delta / prev_shares * 100, 3)
-        except:
+        except Exception:
             pass
 
     for code in shares:
@@ -207,7 +207,7 @@ def _get_latest_share_delta(code, before_date=None):
                         prev = _find_prev_share(hist, code, date)
                         if prev is not None and prev > 0:
                             return round((shares_yi - prev) / prev * 100, 3)
-        except:
+        except Exception:
             pass
 
     # 回退到SQLite DB
@@ -230,7 +230,7 @@ def _get_latest_share_delta(code, before_date=None):
                     ).fetchone()
                 if row:
                     return row[0]
-    except:
+    except Exception:
         pass
 
     return None
@@ -268,7 +268,7 @@ def check_consecutive_days(mid_count_today, high_count_today, resonance_min=3):
     try:
         with open(hist_path, "r", encoding="utf-8") as f:
             history = json.load(f)
-    except:
+    except Exception:
         return 1, False, 0
 
     today = datetime.now().strftime("%Y-%m-%d")
@@ -387,7 +387,7 @@ def fetch_north_flow():
             "signal": "inflow" if net_flow > 0 else "outflow",
             "strong": abs(net_flow) > 500000,  # 50亿以上视为显著
         }
-    except:
+    except Exception:
         return None
 
 
@@ -618,7 +618,7 @@ def save_signal_history(resonance_info):
         if os.path.exists(history_path):
             with open(history_path, "r", encoding="utf-8") as f:
                 history = json.load(f)
-    except:
+    except Exception:
         history = []
 
     today = datetime.now().strftime("%Y-%m-%d")
@@ -636,11 +636,11 @@ def save_signal_history(resonance_info):
 
 
 def get_optimal_weights():
-    """获取因子权重 — 固定50/20/30。
+    """获取因子权重 — 固定45/35/20。
     Walk-Forward验证后废弃了60天滚动网格搜索优化,
-    固定权重在样本外表现更稳健(平均+0.6%超额 vs 搜索版)。
+    固定权重在样本外表现更稳健。
     """
-    return {"vol": 0.50, "dir": 0.20, "share": 0.30}
+    return {"vol": 0.45, "dir": 0.35, "share": 0.20}
 
 
 # ================================================================
@@ -693,14 +693,15 @@ def get_min_position(trend_info):
 
 
 def calc_dynamic_exit(entry_price, highest_since_entry, atr, days_held,
-                       time_stop=8, target_pct=5.0, trail_mult=1.5):
+                       current_price=None, time_stop=8, target_pct=5.0, trail_mult=1.5):
     """动态退出判断。
 
     参数:
       entry_price: 买入价
-      highest_since_entry: 持仓期间最高收盘价
+      highest_since_entry: 持仓期间最高收盘价(用于跟踪止损)
       atr: 当前ATR值
       days_held: 已持有天数
+      current_price: 当前价格(用于止盈判断, 默认用highest)
       time_stop: 时间止损(天)
       target_pct: 目标止盈(%)
       trail_mult: 跟踪止损ATR倍数
@@ -711,8 +712,9 @@ def calc_dynamic_exit(entry_price, highest_since_entry, atr, days_held,
     if days_held >= time_stop:
         return True, f"时间止损(持{days_held}天)", None
 
-    # ② 目标止盈
-    profit_pct = (highest_since_entry - entry_price) / entry_price * 100
+    # ② 目标止盈 — 用当前价格而非最高价
+    cur = current_price if current_price is not None else highest_since_entry
+    profit_pct = (cur - entry_price) / entry_price * 100
     if profit_pct >= target_pct:
         return True, f"目标止盈(+{profit_pct:.1f}%)", None
 
